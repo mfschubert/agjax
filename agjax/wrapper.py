@@ -1,0 +1,214 @@
+"""Defines a jax wrapper for autograd-differentiable functions."""
+
+from typing import Any, Callable, Sequence, Tuple, Union
+
+import functools
+
+import autograd
+import autograd.numpy as npa
+import jax
+import jax.numpy as jnp
+import numpy as onp
+
+PyTree = Any
+
+
+def wrap_for_jax(
+    fn: Callable,
+    nondiff_argnums: Union[int, Tuple[int, ...]] = (),
+    nondiff_outputnums: Union[int, Tuple[int, ...]] = (),
+) -> Callable:
+    """Wraps `fn` so that it can be differentiated by jax.
+
+    Args:
+        fn: The autograd-differentiable function.
+        argnums: The arguments that can be differentiated with respect to.
+        outputnums: The outputs that can be differentiated.
+
+    Returns:
+        The wrapped function.
+    """
+    if isinstance(nondiff_argnums, int):
+        nondiff_argnums = (nondiff_argnums,)
+    if isinstance(nondiff_outputnums, int):
+        nondiff_outputnums = (nondiff_outputnums,)
+
+    split_args_fn = functools.partial(_split, idx=nondiff_argnums)
+    merge_args_fn = functools.partial(_merge, idx=nondiff_argnums)
+    split_outputs_fn = functools.partial(_split, idx=nondiff_outputnums)
+    merge_outputs_fn = functools.partial(_merge, idx=nondiff_outputnums)
+
+    @functools.partial(jax.custom_vjp, nondiff_argnums=nondiff_argnums)
+    def _fn(*args_jax):
+        # Arguments that can be differentiated with respect to are jax arrays, and
+        # must be converged to numpy. Extract these, convert to numpy, and remerge.
+        nondiff_args, diff_args = split_args_fn(args_jax)
+        args = merge_args_fn(nondiff_args, _to_numpy(diff_args))
+        outputs = fn(*args)
+        # Convert differentiable outputs to jax arrays.
+        outputs, is_tuple_outputs = _ensure_tuple(outputs)
+        nondiff_outputs, diff_outputs = split_outputs_fn(outputs)
+        nondiff_outputs = tuple([_WrappedValue(o) for o in nondiff_outputs])
+        outputs = merge_outputs_fn(nondiff_outputs, _to_jax(diff_outputs))
+        return outputs if is_tuple_outputs else outputs[0]
+
+    def _fwd_fn(*args_jax):
+        # Split arguments that can be differentiated with respect to, convert to
+        # numpy and flatten.
+        nondiff_args, diff_args = split_args_fn(args_jax)
+        diff_args_flat, unflatten_diff_args_fn = _flatten(_to_numpy(diff_args))
+
+        # Variables updated nonlocally where `fn` is evaluated.
+        is_tuple_outputs = None
+        nondiff_outputs = None
+        unflatten_outputs_fn = None
+
+        def _flat_fn(diff_args_flat: onp.ndarray) -> onp.ndarray:
+            nonlocal is_tuple_outputs
+            nonlocal nondiff_outputs
+            nonlocal unflatten_outputs_fn
+
+            diff_args = unflatten_diff_args_fn(diff_args_flat)
+            args = merge_args_fn(nondiff_args, diff_args)
+            outputs = fn(*args)
+
+            outputs, is_tuple_outputs = _ensure_tuple(outputs)
+            nondiff_outputs, diff_outputs = split_outputs_fn(outputs)
+            nondiff_outputs = _arraybox_to_numpy(nondiff_outputs)
+            nondiff_outputs = tuple([_WrappedValue(o) for o in nondiff_outputs])
+            diff_outputs_flat, unflatten_outputs_fn = _flatten(diff_outputs)
+            return diff_outputs_flat
+
+        flat_vjp_fn, diff_outputs_flat = autograd.make_vjp(_flat_fn)(diff_args_flat)
+        diff_outputs = unflatten_outputs_fn(diff_outputs_flat)
+        outputs = merge_outputs_fn(nondiff_outputs, _to_jax(diff_outputs))
+        outputs = outputs if is_tuple_outputs else outputs[0]
+
+        def _vjp_fn(*diff_outputs):
+            diff_outputs_flat, _ = _flatten(_to_numpy(diff_outputs))
+            grad_flat = flat_vjp_fn(onp.asarray(diff_outputs_flat))
+            grad = unflatten_diff_args_fn(grad_flat)
+            # Note that there is no value associated with nondifferentiable
+            # arguments in the return of the vjp function.
+            return _to_jax(grad)
+
+        return outputs, jax.tree_util.Partial(_vjp_fn)
+
+    def _bwd_fn(*bwd_args):
+        # The `bwd_args` consist of the nondifferentiable arguments, the
+        # residual of the forward function (i.e. our `vjp_fn`), and the
+        # vector for which the vector-jacobian product is sought.
+        vjp_fn = bwd_args[len(nondiff_argnums)]
+        outputs = bwd_args[len(nondiff_argnums) + 1:]
+        return vjp_fn(*outputs)
+
+    _fn.defvjp(_fwd_fn, _bwd_fn)
+
+    def _fn_with_unwrapped_outputs(*args_jax):
+        # Wrapped version of our function with custom vjp, which unpacks the
+        # wrapped values associated with nondifferentiable outputs.
+        outputs = _fn(*args_jax)
+        if not isinstance(outputs, tuple):
+            return outputs
+        return tuple([o.value if isinstance(o, _WrappedValue) else o for o in outputs])
+
+    return _fn_with_unwrapped_outputs
+
+
+class _WrappedValue:
+    """Wraps a value treated as an auxilliary in a pytree node."""
+
+    def __init__(self, value):
+        self.value = value
+
+    def __repr__(self):
+        return f"_WrappedValue({self.value})"
+
+
+jax.tree_util.register_pytree_node(
+    _WrappedValue,
+    flatten_func=lambda w: ((), (w.value,)),
+    unflatten_func=lambda v, _: _WrappedValue(*v),
+)
+
+
+def _split(
+    a: Tuple[Any, ...],
+    idx: Tuple[int, ...],
+) -> Tuple[Tuple[Any, ...], Tuple[Any, ...]]:
+    """Splits the sequence `a` into two sequences."""
+    if not all(i in range(-len(a), len(a)) for i in idx):
+        raise ValueError(
+            f"Found out of bounds values in `idx`, got {idx} when sequence `a` has "
+            f"length {len(a)}."
+        )
+    positive_idx = [i % len(a) for i in idx]
+    if len(positive_idx) != len(set(positive_idx)):
+        raise ValueError(
+            f"Found duplicate values in `idx`, got {idx} when sequence `a` has "
+            f"length {len(a)}."
+        )
+
+    return (
+        tuple([a[i] for i in idx]),
+        tuple([a[i] for i in range(len(a)) if i not in idx]),
+    )
+
+
+def _merge(
+    a: Sequence[Any],
+    b: Sequence[Any],
+    idx: Sequence[int],
+) -> Tuple[Any]:
+    """Merges the sequences `a` and `b`, undoing a `_split` operation."""
+    positive_idx = [i % (len(a) + len(b)) for i in idx]
+    iter_a = iter(a)
+    iter_b = iter(b)
+    return tuple(
+        [
+            next(iter_a) if i in positive_idx else next(iter_b)
+            for i in range(len(a) + len(b))
+        ]
+    )
+
+
+def _flatten(
+    tree: PyTree,
+) -> Tuple[onp.ndarray, Callable[[onp.ndarray], PyTree]]:
+    """Returns a pytree into a single numpy array, and an `unflatten_fn`."""
+    leaves, treedef = jax.tree_util.tree_flatten(tree)
+    flattened = npa.concatenate([l.flatten() for l in leaves])
+
+    sizes = [l.size for l in leaves]
+    shapes = [l.shape for l in leaves]
+
+    def unflatten_fn(flat):
+        flat_leaves = npa.split(flat, onp.cumsum(sizes))
+        leaves = [l.reshape(s) for l, s in zip(flat_leaves, shapes)]
+        return jax.tree_util.tree_unflatten(treedef, leaves)
+
+    return flattened, unflatten_fn
+
+
+def _to_jax(tree: PyTree) -> PyTree:
+    """Converts leaves of a pytree to jax arrays."""
+    return jax.tree_util.tree_map(jnp.asarray, tree)
+
+
+def _to_numpy(tree: PyTree) -> PyTree:
+    """Converts leaves of a pytree to numpy arrays."""
+    return jax.tree_util.tree_map(onp.asarray, tree)
+
+
+def _arraybox_to_numpy(tree: PyTree) -> PyTree:
+    """Converts `ArrayBox` leaves of a pytree to numpy arrays."""
+    return jax.tree_util.tree_map(
+        lambda x: x._value if isinstance(x, npa.numpy_boxes.ArrayBox) else x,
+        tree,
+    )
+
+
+def _ensure_tuple(xs: Any) -> Tuple[Any, bool]:
+    """Returns `(xs, True)` if `xs` is a tuple, and `((xs,), False)` otherwise."""
+    is_tuple = isinstance(xs, tuple)
+    return (xs if is_tuple else (xs,)), is_tuple
