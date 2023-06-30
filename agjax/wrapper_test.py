@@ -37,7 +37,10 @@ TEST_FNS_AND_ARGS = (
         (3.0 + 1.0j, 4.0 + 0.5j),
     ),
     (  # Arguments and outputs include pytree.
-        lambda x, y: {"a": (x["a0"] + x["a1"]) ** 2 + y, "b": (x["a0"] - y, y - x["a1"])},
+        lambda x, y: {
+            "a": (x["a0"] + x["a1"]) ** 2 + y,
+            "b": (x["a0"] - y, y - x["a1"]),
+        },
         ({"a0": 3.0 + 1.0j, "a1": 22.0j}, 4.0 + 0.5j),
     ),
 )
@@ -88,11 +91,13 @@ class WrapperTest(unittest.TestCase):
                 str_arg * int_arg,
             )
 
-        wrapped = wrapper.wrap_for_jax(autograd_fn, nondiff_argnums=(2, 3), nondiff_outputnums=2)
+        wrapped = wrapper.wrap_for_jax(
+            autograd_fn, nondiff_argnums=(2, 3), nondiff_outputnums=2
+        )
 
         args = (0.3 + 2.2j, -11.0 + 0.0j, 3, "test")
         expected_outputs = ((0.3 + 2.2j) ** 2 - 11.0 * 3, 13.3 + 2.2j, "testtesttest")
-        
+
         # Check that directly calling the wrapped function gives the expected
         # output. This validates `_fn`.
         wrapped_outputs = wrapped(*args)
