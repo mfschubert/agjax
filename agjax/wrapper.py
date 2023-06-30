@@ -22,16 +22,16 @@ def wrap_for_jax(
 
     Args:
         fn: The autograd-differentiable function.
-        argnums: The arguments that can be differentiated with respect to.
-        outputnums: The outputs that can be differentiated.
+        nondiff_argnums: The arguments that cannot be differentiated with
+            respect to. These are passed to `fn` unchanged.
+        nondiff_outputnums: The outputs that cannot be differentiated.
+            These are returned exactly as returned by `fn`.
 
     Returns:
         The wrapped function.
     """
-    if isinstance(nondiff_argnums, int):
-        nondiff_argnums = (nondiff_argnums,)
-    if isinstance(nondiff_outputnums, int):
-        nondiff_outputnums = (nondiff_outputnums,)
+    nondiff_argnums, _ = _ensure_tuple(nondiff_argnums)
+    nondiff_outputnums, _ = _ensure_tuple(nondiff_outputnums)
 
     split_args_fn = functools.partial(_split, idx=nondiff_argnums)
     merge_args_fn = functools.partial(_merge, idx=nondiff_argnums)
@@ -99,7 +99,7 @@ def wrap_for_jax(
         # residual of the forward function (i.e. our `vjp_fn`), and the
         # vector for which the vector-jacobian product is sought.
         vjp_fn = bwd_args[len(nondiff_argnums)]
-        outputs = bwd_args[len(nondiff_argnums) + 1:]
+        outputs = bwd_args[len(nondiff_argnums) + 1 :]
         return vjp_fn(*outputs)
 
     _fn.defvjp(_fwd_fn, _bwd_fn)
