@@ -111,8 +111,8 @@ def wrap_for_jax(
         # residual of the forward function (i.e. our `vjp_fn`), and the
         # vector for which the vector-jacobian product is sought.
         vjp_fn = bwd_args[len(_nondiff_argnums)]
-        outputs = bwd_args[len(_nondiff_argnums) + 1 :]
-        return vjp_fn(*outputs)
+        diff_outputs = bwd_args[len(_nondiff_argnums) + 1 :]
+        return vjp_fn(*diff_outputs)
 
     _fn.defvjp(_fwd_fn, _bwd_fn)
 
