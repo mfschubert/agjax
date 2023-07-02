@@ -1,3 +1,4 @@
+# type: ignore
 """Tests for `wrapper`."""
 
 import unittest
@@ -50,34 +51,44 @@ TEST_FNS_AND_ARGS = (
 class WrapperTest(unittest.TestCase):
     @parameterized.parameterized.expand(([2], [-3]))
     def test_out_of_bounds_nondiff_argnums(self, nondiff_argnums):
-        fn = lambda x, y: (npa.sum(x + y), y)
+        def fn(x, y):
+            return (npa.sum(x + y), y)
+
         wrapped = wrapper.wrap_for_jax(fn, nondiff_argnums=nondiff_argnums)
         with self.assertRaisesRegex(ValueError, "Found out of bounds"):
             wrapped(1.0, 2.0)
 
     @parameterized.parameterized.expand(([(1, 1)], [(1, -1)]))
     def test_duplicate_nondiff_argnums(self, nondiff_argnums):
-        fn = lambda x, y: (npa.sum(x + y), y)
+        def fn(x, y):
+            return (npa.sum(x + y), y)
+
         wrapped = wrapper.wrap_for_jax(fn, nondiff_argnums=nondiff_argnums)
         with self.assertRaisesRegex(ValueError, "Found duplicate"):
             wrapped(1.0, 2.0)
 
     @parameterized.parameterized.expand(([2], [-3]))
     def test_out_of_bounds_nondiff_outputnums(self, nondiff_outputnums):
-        fn = lambda x, y: (npa.sum(x + y), y)
+        def fn(x, y):
+            return (npa.sum(x + y), y)
+
         wrapped = wrapper.wrap_for_jax(fn, nondiff_outputnums=nondiff_outputnums)
         with self.assertRaisesRegex(ValueError, "Found out of bounds"):
             wrapped(1.0, 2.0)
 
     @parameterized.parameterized.expand(([(1, 1)], [(1, -1)]))
     def test_duplicate_nondiff_outputnums(self, nondiff_outputnums):
-        fn = lambda x, y: (npa.sum(x + y), y)
+        def fn(x, y):
+            return (npa.sum(x + y), y)
+
         wrapped = wrapper.wrap_for_jax(fn, nondiff_outputnums=nondiff_outputnums)
         with self.assertRaisesRegex(ValueError, "Found duplicate"):
             wrapped(1.0, 2.0)
 
     def test_function_has_no_differentiable_outputs(self):
-        fn = lambda x, y: (x, y)
+        def fn(x, y):
+            return (x, y)
+
         wrapped = wrapper.wrap_for_jax(fn, nondiff_outputnums=(0, 1))
         with self.assertRaisesRegex(ValueError, "At least one differentiable output"):
             wrapped(1.0, 2.0)
