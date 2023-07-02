@@ -47,17 +47,50 @@ TEST_FNS_AND_ARGS = (
 
 
 class WrapperTest(unittest.TestCase):
+    @parameterized.parameterized.expand(([2], [-3]))
+    def test_out_of_bounds_nondiff_argnums(self, nondiff_argnums):
+        fn = lambda x, y: (npa.sum(x + y), y)
+        wrapped = wrapper.wrap_for_jax(fn, nondiff_argnums=nondiff_argnums)
+        with self.assertRaisesRegex(ValueError, "Found out of bounds"):
+            wrapped(1.0, 2.0)
+
+    @parameterized.parameterized.expand(([(1, 1)], [(1, -1)]))
+    def test_duplicate_nondiff_argnums(self, nondiff_argnums):
+        fn = lambda x, y: (npa.sum(x + y), y)
+        wrapped = wrapper.wrap_for_jax(fn, nondiff_argnums=nondiff_argnums)
+        with self.assertRaisesRegex(ValueError, "Found duplicate"):
+            wrapped(1.0, 2.0)
+
+    @parameterized.parameterized.expand(([2], [-3]))
+    def test_out_of_bounds_nondiff_outputnums(self, nondiff_outputnums):
+        fn = lambda x, y: (npa.sum(x + y), y)
+        wrapped = wrapper.wrap_for_jax(fn, nondiff_outputnums=nondiff_outputnums)
+        with self.assertRaisesRegex(ValueError, "Found out of bounds"):
+            wrapped(1.0, 2.0)
+
+    @parameterized.parameterized.expand(([(1, 1)], [(1, -1)]))
+    def test_duplicate_nondiff_outputnums(self, nondiff_outputnums):
+        fn = lambda x, y: (npa.sum(x + y), y)
+        wrapped = wrapper.wrap_for_jax(fn, nondiff_outputnums=nondiff_outputnums)
+        with self.assertRaisesRegex(ValueError, "Found duplicate"):
+            wrapped(1.0, 2.0)
+
+    def test_function_has_no_differentiable_outputs(self):
+        fn = lambda x, y: (x, y)
+        wrapped = wrapper.wrap_for_jax(fn, nondiff_outputnums=(0, 1))
+        with self.assertRaisesRegex(ValueError, "At least one differentiable output"):
+            wrapped(1.0, 2.0)
+        with self.assertRaisesRegex(ValueError, "At least one differentiable output"):
+            jax.grad(wrapped)(1.0, 2.0)
+        with self.assertRaisesRegex(ValueError, "At least one differentiable output"):
+            jax.value_and_grad(wrapped)(1.0, 2.0)
+
     @parameterized.parameterized.expand(TEST_FNS_AND_ARGS)
     def test_wrapped_matches_autograd(self, autograd_fn, args):
         # Tests case where all arguments can be differentiated
         # with respect to, and all outputs are differentiable.
         expected_outputs = autograd_fn(*args)
 
-        outputnums = (
-            tuple(range(len(expected_outputs)))
-            if isinstance(expected_outputs, tuple)
-            else 0
-        )
         wrapped = wrapper.wrap_for_jax(
             autograd_fn,
             nondiff_argnums=(),
@@ -134,28 +167,30 @@ class WrapperTest(unittest.TestCase):
             onp.testing.assert_allclose(e, g)
 
 
-class SplitMergeTest(unittest.TestCase):
+class ValidateIdxTest(unittest.TestCase):
     @parameterized.parameterized.expand(
         (
-            ([1, 2, 3], [6]),
-            ([1, 2, 3], [-4]),
-            ([1, 2, 3], [-4, -3, -2]),
+            ([6], 3),
+            ([-4], 3),
+            ([-4, -3, -2], 3),
         )
     )
-    def test_invalid_idx_out_of_bounds(self, sequence, idx):
+    def test_invalid_idx_out_of_bounds(self, idx, sequence_length):
         with self.assertRaisesRegex(ValueError, "Found out of bounds values"):
-            wrapper._split(sequence, idx)
+            wrapper._validate_idx_for_sequence_len(idx, sequence_length)
 
     @parameterized.parameterized.expand(
         (
-            ([1, 2, 3], [1, 1]),
-            ([1, 2, 3], [1, -2]),
+            ([1, 1], 3),
+            ([1, -2], 3),
         )
     )
-    def test_invalid_idx_duplicate_value(self, sequence, idx):
+    def test_invalid_idx_duplicate_value(self, idx, sequence_length):
         with self.assertRaisesRegex(ValueError, "Found duplicate values"):
-            wrapper._split(sequence, idx)
+            wrapper._validate_idx_for_sequence_len(idx, sequence_length)
 
+
+class SplitMergeTest(unittest.TestCase):
     @parameterized.parameterized.expand(
         (
             ([1, 2, 3, 4], [0, 1]),
