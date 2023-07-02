@@ -40,7 +40,7 @@ docs = [
     ]
 dev = [
     "pre-commit",
-    "agjax[tests, docs]",
+    "agjax[tests]",
     ]
 
 
