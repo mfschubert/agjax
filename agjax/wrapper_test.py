@@ -1,12 +1,13 @@
 """Tests for `wrapper`."""
 
+import unittest
+
 import autograd
 import autograd.numpy as npa
 import jax
 import jax.numpy as jnp
 import numpy as onp
 import parameterized
-import unittest
 
 from agjax import wrapper
 
@@ -165,6 +166,15 @@ class WrapperTest(unittest.TestCase):
         self.assertEqual(aux, expected_aux)
         for e, g in zip(expected_grad, grad):
             onp.testing.assert_allclose(e, g)
+
+
+class WrappedValueTest(unittest.TestCase):
+    def test_flatten_unflatten(self):
+        wrapped = wrapper._WrappedValue(value=(1, 2, 3, 4))
+        leaves, treedef = jax.tree_util.tree_flatten(wrapped)
+        self.assertSequenceEqual(leaves, ())
+        restored = jax.tree_util.tree_unflatten(treedef, leaves)
+        self.assertSequenceEqual(restored.value, (1, 2, 3, 4))
 
 
 class ValidateIdxTest(unittest.TestCase):

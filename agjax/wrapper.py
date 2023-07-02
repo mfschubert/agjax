@@ -39,22 +39,23 @@ def wrap_for_jax(
     Returns:
         The wrapped function.
     """
-    nondiff_argnums, _ = _ensure_tuple(nondiff_argnums)
-    nondiff_outputnums, _ = _ensure_tuple(nondiff_outputnums)
+    _nondiff_argnums, _ = _ensure_tuple(nondiff_argnums)
+    _nondiff_outputnums, _ = _ensure_tuple(nondiff_outputnums)
+    del nondiff_argnums, nondiff_outputnums
 
-    split_args_fn = functools.partial(_split, idx=nondiff_argnums)
-    merge_args_fn = functools.partial(_merge, idx=nondiff_argnums)
-    split_outputs_fn = functools.partial(_split, idx=nondiff_outputnums)
-    merge_outputs_fn = functools.partial(_merge, idx=nondiff_outputnums)
+    split_args_fn = functools.partial(_split, idx=_nondiff_argnums)
+    merge_args_fn = functools.partial(_merge, idx=_nondiff_argnums)
+    split_outputs_fn = functools.partial(_split, idx=_nondiff_outputnums)
+    merge_outputs_fn = functools.partial(_merge, idx=_nondiff_outputnums)
 
-    @functools.partial(jax.custom_vjp, nondiff_argnums=nondiff_argnums)
+    @functools.partial(jax.custom_vjp, nondiff_argnums=_nondiff_argnums)
     def _fn(*args_jax):
         # Arguments that can be differentiated with respect to are jax arrays, and
         # must be converged to numpy. Extract these, convert to numpy, and remerge.
         nondiff_args, diff_args = split_args_fn(args_jax)
         args = merge_args_fn(nondiff_args, _to_numpy(diff_args))
         outputs = fn(*args)
-        _validate_nondiff_outputnums_for_outputs(nondiff_outputnums, outputs)
+        _validate_nondiff_outputnums_for_outputs(_nondiff_outputnums, outputs)
         # Convert differentiable outputs to jax arrays.
         outputs, is_tuple_outputs = _ensure_tuple(outputs)
         nondiff_outputs, diff_outputs = split_outputs_fn(outputs)
@@ -81,7 +82,7 @@ def wrap_for_jax(
             diff_args = unflatten_diff_args_fn(diff_args_flat)
             args = merge_args_fn(nondiff_args, diff_args)
             outputs = fn(*args)
-            _validate_nondiff_outputnums_for_outputs(nondiff_outputnums, outputs)
+            _validate_nondiff_outputnums_for_outputs(_nondiff_outputnums, outputs)
 
             outputs, is_tuple_outputs = _ensure_tuple(outputs)
             nondiff_outputs, diff_outputs = split_outputs_fn(outputs)
@@ -109,14 +110,14 @@ def wrap_for_jax(
         # The `bwd_args` consist of the nondifferentiable arguments, the
         # residual of the forward function (i.e. our `vjp_fn`), and the
         # vector for which the vector-jacobian product is sought.
-        vjp_fn = bwd_args[len(nondiff_argnums)]
-        outputs = bwd_args[len(nondiff_argnums) + 1 :]
+        vjp_fn = bwd_args[len(_nondiff_argnums)]
+        outputs = bwd_args[len(_nondiff_argnums) + 1 :]
         return vjp_fn(*outputs)
 
     _fn.defvjp(_fwd_fn, _bwd_fn)
 
     def _fn_with_unwrapped_outputs(*args_jax):
-        _validate_idx_for_sequence_len(nondiff_argnums, len(args_jax))
+        _validate_idx_for_sequence_len(_nondiff_argnums, len(args_jax))
         # Wrapped version of our function with custom vjp, which unpacks the
         # wrapped values associated with nondifferentiable outputs.
         outputs = _fn(*args_jax)
@@ -145,12 +146,12 @@ jax.tree_util.register_pytree_node(
 
 
 def _validate_nondiff_outputnums_for_outputs(
-    nondiff_outputnums: Tuple[int, ...],
-    maybe_tuple_output: Any,
+    nondiff_outputnums: Sequence[int],
+    maybe_tuple_outputs: Any,
 ) -> None:
     """Validates that `nondiff_outputnums` is compatible with a `outputs`."""
     outputs_length = (
-        len(maybe_tuple_output) if isinstance(maybe_tuple_output, tuple) else 1
+        len(maybe_tuple_outputs) if isinstance(maybe_tuple_outputs, tuple) else 1
     )
     _validate_idx_for_sequence_len(nondiff_outputnums, outputs_length)
     if outputs_length <= len(nondiff_outputnums):
@@ -161,7 +162,7 @@ def _validate_nondiff_outputnums_for_outputs(
         )
 
 
-def _validate_idx_for_sequence_len(idx: Tuple[int, ...], sequence_length: int) -> None:
+def _validate_idx_for_sequence_len(idx: Sequence[int], sequence_length: int) -> None:
     """Validates that `idx` is compatible with a sequence length."""
     if not all(i in range(-sequence_length, sequence_length) for i in idx):
         raise ValueError(
