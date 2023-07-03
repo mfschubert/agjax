@@ -139,3 +139,8 @@ repos:
     rev: "6a0ba1854991b693612486cc84a2254de82d071d"
     hooks:
       - id: ruff
+
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.3.9
+    hooks:
+      - id: nbstripout
