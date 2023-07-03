@@ -2,8 +2,7 @@
 Agjax is a jax wrapper for autograd-differentiable functions. It allows existing code built with autograd to be used with the jax framework. In particular, agjax allows an arbitrary autograd function to be differentiated using `jax.grad`. Several other function transformations (e.g. compilation via `jax.jit`) are not supported.
 
 ## Installation
-Agjax is not yet a published package, but can be installed by cloning this repository and running `pip install -e agjax`.
-or `make install`
+Agjax is not yet a published package, but can be installed by cloning this repository and running `pip install -e agjax` or run `make install`.
 
 ## Usage
 Basic usage is as follows:
