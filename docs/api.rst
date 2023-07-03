@@ -1,7 +1,5 @@
-agjax
+API
 ===================================
 
-wrapper
----------------------
-
-.. automodule:: agjax.wrapper
+.. automodule:: agjax
+    :members:

@@ -37,9 +37,11 @@ docs = [
     "jupyter-book==0.15.1",
     "sphinx-autodoc-typehints",
     "sphinx-click",
+    "ceviche_challenges"
     ]
 dev = [
     "pre-commit",
+    "bumpversion",
     "agjax[tests]",
     ]
 
