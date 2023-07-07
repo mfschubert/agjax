@@ -1,0 +1,10 @@
+# Table of contents
+# Learn more at https://jupyterbook.org/customize/toc.html
+
+format: jb-book
+root: index
+chapters:
+  - file: basic_example
+  - file: photonic_inverse_design
+  - file: api
+  - file: changelog

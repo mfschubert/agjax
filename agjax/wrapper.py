@@ -14,10 +14,10 @@ PyTree = Any
 
 
 def wrap_for_jax(
-    fn: Callable,
+    fn: Callable[[Any], Any],
     nondiff_argnums: Union[int, Tuple[int, ...]] = (),
     nondiff_outputnums: Union[int, Tuple[int, ...]] = (),
-) -> Callable:
+) -> Callable[[Any], Any]:
     """Wraps `fn` so that it can be differentiated by jax.
 
     Arguments should be jax types, and are converted to numpy arrays prior
@@ -49,7 +49,7 @@ def wrap_for_jax(
     merge_outputs_fn = functools.partial(_merge, idx=_nondiff_outputnums)
 
     @functools.partial(jax.custom_vjp, nondiff_argnums=_nondiff_argnums)
-    def _fn(*args_jax):
+    def _fn(*args_jax: Any) -> Any:
         # Arguments that can be differentiated with respect to are jax arrays, and
         # must be converged to numpy. Extract these, convert to numpy, and remerge.
         nondiff_args, diff_args = split_args_fn(args_jax)
@@ -63,7 +63,7 @@ def wrap_for_jax(
         outputs = merge_outputs_fn(nondiff_outputs, _to_jax(diff_outputs))
         return outputs if is_tuple_outputs else outputs[0]
 
-    def _fwd_fn(*args_jax):
+    def _fwd_fn(*args_jax: Any) -> Any:
         # Split arguments that can be differentiated with respect to, convert to
         # numpy and flatten.
         nondiff_args, diff_args = split_args_fn(args_jax)
@@ -87,16 +87,16 @@ def wrap_for_jax(
             outputs, is_tuple_outputs = _ensure_tuple(outputs)
             nondiff_outputs, diff_outputs = split_outputs_fn(outputs)
             nondiff_outputs = _arraybox_to_numpy(nondiff_outputs)
-            nondiff_outputs = tuple([_WrappedValue(o) for o in nondiff_outputs])
+            nondiff_outputs = tuple([_WrappedValue(o) for o in nondiff_outputs or []])
             diff_outputs_flat, unflatten_outputs_fn = _flatten(diff_outputs)
             return diff_outputs_flat
 
         flat_vjp_fn, diff_outputs_flat = autograd.make_vjp(_flat_fn)(diff_args_flat)
-        diff_outputs = unflatten_outputs_fn(diff_outputs_flat)
+        diff_outputs = unflatten_outputs_fn(diff_outputs_flat)  # type: ignore[misc]
         outputs = merge_outputs_fn(nondiff_outputs, _to_jax(diff_outputs))
         outputs = outputs if is_tuple_outputs else outputs[0]
 
-        def _vjp_fn(*diff_outputs):
+        def _vjp_fn(*diff_outputs: Any) -> Any:
             diff_outputs_flat, _ = _flatten(_to_numpy(diff_outputs))
             grad_flat = flat_vjp_fn(onp.asarray(diff_outputs_flat))
             grad = unflatten_diff_args_fn(grad_flat)
@@ -106,7 +106,7 @@ def wrap_for_jax(
 
         return outputs, jax.tree_util.Partial(_vjp_fn)
 
-    def _bwd_fn(*bwd_args):
+    def _bwd_fn(*bwd_args: Any) -> Any:
         # The `bwd_args` consist of the nondifferentiable arguments, the
         # residual of the forward function (i.e. our `vjp_fn`), and the
         # vector for which the vector-jacobian product is sought.
@@ -116,7 +116,7 @@ def wrap_for_jax(
 
     _fn.defvjp(_fwd_fn, _bwd_fn)
 
-    def _fn_with_unwrapped_outputs(*args_jax):
+    def _fn_with_unwrapped_outputs(*args_jax: Any) -> Any:
         _validate_idx_for_sequence_len(_nondiff_argnums, len(args_jax))
         # Wrapped version of our function with custom vjp, which unpacks the
         # wrapped values associated with nondifferentiable outputs.
@@ -131,10 +131,10 @@ def wrap_for_jax(
 class _WrappedValue:
     """Wraps a value treated as an auxilliary quantity of a pytree node."""
 
-    def __init__(self, value):
+    def __init__(self, value: Any) -> None:
         self.value = value
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"_WrappedValue({self.value})"
 
 
@@ -193,7 +193,7 @@ def _merge(
     a: Sequence[Any],
     b: Sequence[Any],
     idx: Sequence[int],
-) -> Tuple[Any]:
+) -> Tuple[Any, ...]:
     """Merges the sequences `a` and `b`, undoing a `_split` operation."""
     _validate_idx_for_sequence_len(idx, len(a) + len(b))
     positive_idx = [i % (len(a) + len(b)) for i in idx]
@@ -212,14 +212,14 @@ def _flatten(
 ) -> Tuple[onp.ndarray, Callable[[onp.ndarray], PyTree]]:
     """Returns a pytree into a single numpy array, and an `unflatten_fn`."""
     leaves, treedef = jax.tree_util.tree_flatten(tree)
-    flattened = npa.concatenate([l.flatten() for l in leaves])
+    flattened = npa.concatenate([leaf.flatten() for leaf in leaves])
 
-    sizes = [l.size for l in leaves]
-    shapes = [l.shape for l in leaves]
+    sizes = [leaf.size for leaf in leaves]
+    shapes = [leaf.shape for leaf in leaves]
 
-    def unflatten_fn(flat):
+    def unflatten_fn(flat: onp.ndarray) -> PyTree:
         flat_leaves = npa.split(flat, onp.cumsum(sizes))
-        leaves = [l.reshape(s) for l, s in zip(flat_leaves, shapes)]
+        leaves = [leaf.reshape(s) for leaf, s in zip(flat_leaves, shapes)]
         return jax.tree_util.tree_unflatten(treedef, leaves)
 
     return flattened, unflatten_fn
