@@ -71,7 +71,7 @@ def wrap_for_jax(
         # Variables updated nonlocally where `fn` is evaluated.
         is_tuple_outputs: bool = None  # type: ignore[assignment]
         nondiff_outputs: Tuple[Any, ...] = None  # type: ignore[assignment]
-        diff_outputs_treedef: jax.tree_util.PyTreeDef = None  # type: ignore[assignment]
+        diff_outputs_treedef: jax.tree_util.PyTreeDef = None
 
         def _tuple_fn(*args: Any) -> onp.ndarray:
             nonlocal is_tuple_outputs
