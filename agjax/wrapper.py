@@ -73,7 +73,7 @@ def wrap_for_jax(
         nondiff_outputs: Tuple[Any, ...] = None  # type: ignore[assignment]
         unflatten_outputs_fn: Callable[[onp.ndarray], Any] = None  # type: ignore[assignment]
 
-        def _flat_fn(*args) -> onp.ndarray:
+        def _flat_fn(*args: Any) -> onp.ndarray:
             nonlocal is_tuple_outputs
             nonlocal nondiff_outputs
             nonlocal unflatten_outputs_fn
