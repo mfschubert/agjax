@@ -64,23 +64,20 @@ def wrap_for_jax(
         return outputs if is_tuple_outputs else outputs[0]
 
     def _fwd_fn(*args_jax: Any) -> Any:
-        # Split arguments that can be differentiated with respect to, convert to
-        # numpy and flatten.
+        # Convert to numpy the args that can be differentiated with respect to.
         nondiff_args, diff_args = split_args_fn(args_jax)
-        diff_args_flat, unflatten_diff_args_fn = _flatten(_to_numpy(diff_args))
+        args = merge_args_fn(nondiff_args, _to_numpy(diff_args))
 
         # Variables updated nonlocally where `fn` is evaluated.
-        is_tuple_outputs = None
-        nondiff_outputs = None
-        unflatten_outputs_fn = None
+        is_tuple_outputs: bool = None  # type: ignore[misc]
+        nondiff_outputs: Tuple[Any, ...] = None  # type: ignore[misc]
+        unflatten_outputs_fn: Callable[[onp.ndarray], Any] = None  # type: ignore[misc]
 
-        def _flat_fn(diff_args_flat: onp.ndarray) -> onp.ndarray:
+        def _flat_fn(*args) -> onp.ndarray:
             nonlocal is_tuple_outputs
             nonlocal nondiff_outputs
             nonlocal unflatten_outputs_fn
 
-            diff_args = unflatten_diff_args_fn(diff_args_flat)
-            args = merge_args_fn(nondiff_args, diff_args)
             outputs = fn(*args)
             _validate_nondiff_outputnums_for_outputs(_nondiff_outputnums, outputs)
 
@@ -91,15 +88,17 @@ def wrap_for_jax(
             diff_outputs_flat, unflatten_outputs_fn = _flatten(diff_outputs)
             return diff_outputs_flat
 
-        flat_vjp_fn, diff_outputs_flat = autograd.make_vjp(_flat_fn)(diff_args_flat)
-        diff_outputs = unflatten_outputs_fn(diff_outputs_flat)  # type: ignore[misc]
+        diff_argnums = tuple(i for i in range(len(args)) if i not in _nondiff_argnums)
+        flat_vjp_fn, diff_outputs_flat = autograd.make_vjp(
+            _flat_fn, argnum=diff_argnums
+        )(*args)
+        diff_outputs = unflatten_outputs_fn(diff_outputs_flat)
         outputs = merge_outputs_fn(nondiff_outputs, _to_jax(diff_outputs))
         outputs = outputs if is_tuple_outputs else outputs[0]
 
         def _vjp_fn(*diff_outputs: Any) -> Any:
             diff_outputs_flat, _ = _flatten(_to_numpy(diff_outputs))
-            grad_flat = flat_vjp_fn(onp.asarray(diff_outputs_flat))
-            grad = unflatten_diff_args_fn(grad_flat)
+            grad = flat_vjp_fn(onp.asarray(diff_outputs_flat))
             # Note that there is no value associated with nondifferentiable
             # arguments in the return of the vjp function.
             return _to_jax(grad)
