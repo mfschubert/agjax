@@ -85,14 +85,18 @@ def wrap_for_jax(
             nondiff_outputs, diff_outputs = split_outputs_fn(outputs)
             nondiff_outputs = _arraybox_to_numpy(nondiff_outputs)
             nondiff_outputs = tuple([_WrappedValue(o) for o in nondiff_outputs or []])
-            diff_outputs_leaves, diff_outputs_treedef = jax.tree_util.tree_flatten(diff_outputs)
+            diff_outputs_leaves, diff_outputs_treedef = jax.tree_util.tree_flatten(
+                diff_outputs
+            )
             return autograd.builtins.tuple(tuple(diff_outputs_leaves))
 
         diff_argnums = tuple(i for i in range(len(args)) if i not in _nondiff_argnums)
         tuple_vjp_fn, diff_outputs_leaves = autograd.make_vjp(
             _tuple_fn, argnum=diff_argnums
         )(*args)
-        diff_outputs = jax.tree_util.tree_unflatten(diff_outputs_treedef, diff_outputs_leaves)
+        diff_outputs = jax.tree_util.tree_unflatten(
+            diff_outputs_treedef, diff_outputs_leaves
+        )
         outputs = merge_outputs_fn(nondiff_outputs, _to_jax(diff_outputs))
         outputs = outputs if is_tuple_outputs else outputs[0]
 
