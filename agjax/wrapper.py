@@ -210,24 +210,6 @@ def _merge(
     )
 
 
-def _flatten(
-    tree: PyTree,
-) -> Tuple[onp.ndarray, Callable[[onp.ndarray], PyTree]]:
-    """Returns a pytree into a single numpy array, and an `unflatten_fn`."""
-    leaves, treedef = jax.tree_util.tree_flatten(tree)
-    flattened = npa.concatenate([leaf.flatten() for leaf in leaves])
-
-    sizes = [leaf.size for leaf in leaves]
-    shapes = [leaf.shape for leaf in leaves]
-
-    def unflatten_fn(flat: onp.ndarray) -> PyTree:
-        flat_leaves = npa.split(flat, onp.cumsum(sizes))
-        leaves = [leaf.reshape(s) for leaf, s in zip(flat_leaves, shapes)]
-        return jax.tree_util.tree_unflatten(treedef, leaves)
-
-    return flattened, unflatten_fn
-
-
 def _to_jax(tree: PyTree) -> PyTree:
     """Converts leaves of a pytree to jax arrays."""
     return jax.tree_util.tree_map(jnp.asarray, tree)

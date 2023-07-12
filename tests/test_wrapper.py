@@ -22,6 +22,10 @@ TEST_FNS_AND_ARGS = (
         lambda x, y: x**2 + y,
         (3.0, 4.0),
     ),
+    (  # Two arguments, scalar output wrapped in a tuple.
+        lambda x, y: (x**2 + y,),
+        (3.0, 4.0),
+    ),
     (  # Two arguments, two outputs.
         lambda x, y: (x**2 + y, x - y),
         (3.0, 4.0),
