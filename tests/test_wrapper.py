@@ -191,6 +191,10 @@ class WrappedValueTest(unittest.TestCase):
         restored = jax.tree_util.tree_unflatten(treedef, leaves)
         self.assertSequenceEqual(restored.value, (1, 2, 3, 4))
 
+    def test_wrapped_repr(self):
+        wrapped = wrapper._WrappedValue(value="my_string")
+        self.assertSequenceEqual(str(wrapped), "_WrappedValue(my_string)")
+
 
 class ValidateIdxTest(unittest.TestCase):
     @parameterized.parameterized.expand(
