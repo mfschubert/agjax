@@ -15,12 +15,12 @@ PyTree = Any
 
 
 def wrap_for_jax(
-    fn: Callable[[Any], Any],
+    fn: Callable[[Any], PyTree],
     nondiff_argnums: Union[int, Tuple[int, ...]] = (),
     nondiff_outputnums: Union[int, Tuple[int, ...]] = (),
     enable_jac: bool = False,
     max_workers: Optional[int] = None,
-) -> Callable[[Any], Any]:
+) -> Callable[[Any], PyTree]:
     """Wraps `fn` so that it can be differentiated by jax.
 
     Arguments should be jax types, and are converted to numpy arrays prior
@@ -58,7 +58,7 @@ def wrap_for_jax(
     merge_outputs_fn = functools.partial(_merge, idx=_nondiff_outputnums)
 
     @functools.partial(jax.custom_vjp, nondiff_argnums=_nondiff_argnums)
-    def _fn(*args_jax: Any) -> Any:
+    def _fn(*args_jax: Any) -> PyTree:
         # Arguments that can be differentiated with respect to are jax arrays, and
         # must be converged to numpy. Extract these, convert to numpy, and remerge.
         nondiff_args, diff_args = split_args_fn(args_jax)
@@ -72,17 +72,17 @@ def wrap_for_jax(
         outputs = merge_outputs_fn(nondiff_outputs, _to_jax(diff_outputs))
         return outputs if is_tuple_outputs else outputs[0]
 
-    def _fwd_fn(*args_jax: Any) -> Any:
+    def _fwd_fn(*args_jax: Any) -> PyTree:
         # Convert to numpy the args that can be differentiated with respect to.
         nondiff_args, diff_args = split_args_fn(args_jax)
         args = merge_args_fn(nondiff_args, _to_numpy(diff_args))
 
         # Variables updated nonlocally where `fn` is evaluated.
         is_tuple_outputs: bool = None  # type: ignore[assignment]
-        nondiff_outputs: Tuple[Any, ...] = None  # type: ignore[assignment]
+        nondiff_outputs: Tuple[PyTree, ...] = None  # type: ignore[assignment]
         diff_outputs_treedef: tree_util.PyTreeDef = None
 
-        def _tuple_fn(*args: Any) -> onp.ndarray:
+        def _tuple_fn(*args: Tuple[onp.ndarray, ...]) -> onp.ndarray:
             nonlocal is_tuple_outputs
             nonlocal nondiff_outputs
             nonlocal diff_outputs_treedef
@@ -109,7 +109,7 @@ def wrap_for_jax(
         outputs = merge_outputs_fn(nondiff_outputs, _to_jax(diff_outputs))
         outputs = outputs if is_tuple_outputs else outputs[0]
 
-        def _vjp_fn(*diff_outputs: Any) -> Any:
+        def _vjp_fn(*diff_outputs: Any) -> PyTree:
             diff_outputs_leaves = tree_util.tree_leaves(diff_outputs)
             grad = tuple_vjp_fn(_to_numpy(diff_outputs_leaves))
             # Note that there is no value associated with nondifferentiable
@@ -118,7 +118,7 @@ def wrap_for_jax(
 
         return outputs, tree_util.Partial(_vjp_fn)
 
-    def _bwd_fn(*bwd_args: Any) -> Any:
+    def _bwd_fn(*bwd_args: Any) -> PyTree:
         # The `bwd_args` consist of the nondifferentiable arguments, the
         # residual of the forward function (i.e. our `vjp_fn`), and the
         # vector for which the vector-jacobian product is sought.
@@ -128,7 +128,7 @@ def wrap_for_jax(
 
     _fn.defvjp(_fwd_fn, _bwd_fn)
 
-    def _fn_with_unwrapped_outputs(*args_jax: Any) -> Any:
+    def _fn_with_unwrapped_outputs(*args_jax: Any) -> PyTree:
         _validate_idx_for_sequence_len(_nondiff_argnums, len(args_jax))
         # Wrapped version of our function with custom vjp, which unpacks the
         # wrapped values associated with nondifferentiable outputs.
@@ -142,7 +142,7 @@ def wrap_for_jax(
 
     # If `enable_jac` is `True`, use the Jacobian-compatible wrapper.
 
-    def _construct_linearization(*args_jax: Any) -> Callable[[Any], Any]:
+    def _construct_linearization(*args_jax: Any) -> Callable[[PyTree], PyTree]:
         nondiff_args, diff_args = split_args_fn(args_jax)
         diff_args_constant = jax.lax.stop_gradient(diff_args)
         del diff_args, args_jax
@@ -159,12 +159,12 @@ def wrap_for_jax(
         with futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             one_hot_vjps = executor.map(lambda o: _vjp_fn(*o), one_hot_outputs)  # type: ignore[no-any-return]
 
-        def _linear_fn(*args_jax: Any) -> PyTree:
+        def _linear_fn(*args_jax: PyTree) -> PyTree:
             # The linear function is roughly defined by,
             #    y = outputs + jacobian * (args - args_constant)
             _, diff_args = split_args_fn(args_jax)
 
-            def _output_delta_value(vjp: Any) -> jnp.ndarray:
+            def _output_delta_value(vjp: PyTree) -> jnp.ndarray:
                 value = tree_util.tree_map(
                     lambda leaf_vjp, x, x0: jnp.sum(leaf_vjp * (x - x0)),
                     vjp,
@@ -190,7 +190,7 @@ def wrap_for_jax(
 
         return _linear_fn
 
-    def _linearized_fn(*args_jax: Any) -> Any:
+    def _linearized_fn(*args_jax: Any) -> PyTree:
         # A jax-differentiable function which is the linearization of `fn` about
         # the point `args_jax`.
         return _construct_linearization(*args_jax)(*args_jax)
@@ -201,7 +201,7 @@ def wrap_for_jax(
 class _WrappedValue:
     """Wraps a value treated as an auxilliary quantity of a pytree node."""
 
-    def __init__(self, value: Any) -> None:
+    def __init__(self, value: PyTree) -> None:
         self.value = value
 
     def __repr__(self) -> str:
@@ -217,7 +217,7 @@ tree_util.register_pytree_node(
 
 def _validate_nondiff_outputnums_for_outputs(
     nondiff_outputnums: Sequence[int],
-    maybe_tuple_outputs: Any,
+    maybe_tuple_outputs: PyTree,
 ) -> None:
     """Validates that `nondiff_outputnums` is compatible with a `outputs`."""
     outputs_length = (
@@ -248,9 +248,9 @@ def _validate_idx_for_sequence_len(idx: Sequence[int], sequence_length: int) -> 
 
 
 def _split(
-    a: Tuple[Any, ...],
+    a: Tuple[PyTree, ...],
     idx: Tuple[int, ...],
-) -> Tuple[Tuple[Any, ...], Tuple[Any, ...]]:
+) -> Tuple[Tuple[PyTree, ...], Tuple[PyTree, ...]]:
     """Splits the sequence `a` into two sequences."""
     _validate_idx_for_sequence_len(idx, len(a))
     return (
@@ -260,10 +260,10 @@ def _split(
 
 
 def _merge(
-    a: Sequence[Any],
-    b: Sequence[Any],
+    a: Sequence[PyTree],
+    b: Sequence[PyTree],
     idx: Sequence[int],
-) -> Tuple[Any, ...]:
+) -> Tuple[PyTree, ...]:
     """Merges the sequences `a` and `b`, undoing a `_split` operation."""
     _validate_idx_for_sequence_len(idx, len(a) + len(b))
     positive_idx = [i % (len(a) + len(b)) for i in idx]
@@ -295,7 +295,7 @@ def _arraybox_to_numpy(tree: PyTree) -> PyTree:
     )
 
 
-def _ensure_tuple(xs: Any) -> Tuple[Any, bool]:
+def _ensure_tuple(xs: PyTree) -> Tuple[PyTree, bool]:
     """Returns `(xs, True)` if `xs` is a tuple, and `((xs,), False)` otherwise."""
     is_tuple = isinstance(xs, tuple)
     return (xs if is_tuple else (xs,)), is_tuple
@@ -303,7 +303,7 @@ def _ensure_tuple(xs: Any) -> Tuple[Any, bool]:
 
 def one_hot_like(tree: PyTree) -> Tuple[PyTree, ...]:
     """Returns a tuple of one-hot pytrees matching the structure of `tree`."""
-    num = onp.sum([leaf.size for leaf in jax.tree_util.tree_leaves(tree)])
+    num = onp.sum([onp.size(leaf) for leaf in jax.tree_util.tree_leaves(tree)])
     return tuple(one_hot_like_at_idx(tree, i) for i in range(num))
 
 
@@ -311,7 +311,7 @@ def one_hot_like_at_idx(tree: PyTree, hot_idx: int) -> PyTree:
     """Returns a pytree one-hot at `hot_idx` matching the structure of `tree`."""
     leaves, treedef = jax.tree_util.tree_flatten(tree)
 
-    sizes = [leaf.size for leaf in leaves]
+    sizes = [onp.size(leaf) for leaf in leaves]
     assert 0 <= hot_idx < onp.sum(sizes)
 
     leaf_idxs = onp.cumsum([0] + sizes)
@@ -323,7 +323,7 @@ def one_hot_like_at_idx(tree: PyTree, hot_idx: int) -> PyTree:
         leaf_start_after_hot = leaf_start_idxs > hot_idx
         leaf_idx = onp.argmax(leaf_start_after_hot) - 1
 
-    leaf_shape = leaves[leaf_idx].shape
+    leaf_shape = onp.shape(leaves[leaf_idx])
     leaf_array_idx = hot_idx - leaf_start_idxs[leaf_idx]
     one_hot_leaves = [onp.zeros_like(leaf) for leaf in leaves]
     one_hot_leaves[leaf_idx][onp.unravel_index(leaf_array_idx, leaf_shape)] = 1
@@ -334,8 +334,8 @@ def one_hot_like_at_idx(tree: PyTree, hot_idx: int) -> PyTree:
 def unflatten(flat: jnp.ndarray, similar_tree: PyTree) -> PyTree:
     """Unflattens an array into a pytree matching the structure of `similar_tree`."""
     similar_leaves, treedef = tree_util.tree_flatten(similar_tree)
-    sizes = [leaf.size for leaf in similar_leaves]
-    shapes = [leaf.shape for leaf in similar_leaves]
+    sizes = [onp.size(leaf) for leaf in similar_leaves]
+    shapes = [onp.shape(leaf) for leaf in similar_leaves]
 
     leaves_flat = jnp.split(flat, indices_or_sections=jnp.cumsum(jnp.asarray(sizes)))
     leaves = [leaf.reshape(shape) for leaf, shape in zip(leaves_flat, shapes)]

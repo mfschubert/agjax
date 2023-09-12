@@ -282,3 +282,49 @@ class SplitMergeTest(unittest.TestCase):
         merged = wrapper._merge(a, b, idx)
         for s, m in zip(sequence, merged):
             onp.testing.assert_array_equal(s, m)
+
+
+class OneHotTest(unittest.TestCase):
+    def test_one_hot_at_idx(self):
+        tree = {"a": onp.ones((4, 2)), "b": (2.0, 3.0, {"c": onp.ones((4,))})}
+        for i in range(14):
+            one_hot = wrapper.one_hot_like_at_idx(tree, i)
+            leaves = jax.tree_util.tree_leaves(one_hot)
+            flat = onp.concatenate([leaf.flatten() for leaf in leaves])
+            expected = onp.zeros((14,))
+            expected[i] = 1.0
+            onp.testing.assert_array_equal(flat, expected)
+
+    def test_one_hot(self):
+        tree = {"a": onp.ones((4, 2)), "b": (2.0, 3.0, {"c": onp.ones((4,))})}
+
+        expected = []
+        for i in range(14):
+            expected_flat = onp.zeros((14,))
+            expected_flat[i] = 1.0
+            expected.append(wrapper.unflatten(expected_flat, tree))
+
+        result = wrapper.one_hot_like(tree)
+
+        for r_tree, e_tree in zip(result, expected):
+            r_leaves, r_treedef = jax.tree_util.tree_flatten(r_tree)
+            e_leaves, e_treedef = jax.tree_util.tree_flatten(e_tree)
+            self.assertEqual(r_treedef, e_treedef)
+            for r, e in zip(r_leaves, e_leaves):
+                onp.testing.assert_array_equal(r, e)
+
+
+class UnflattenTreeTest(unittest.TestCase):
+    def test_unflatten(self):
+        tree = {"a": onp.ones((4, 2)), "b": (2.0, 3.0, {"c": onp.ones((4,))})}
+
+        flat = jnp.concatenate(
+            [jnp.asarray(leaf).flatten() for leaf in jax.tree_util.tree_leaves(tree)]
+        )
+        unflattened = wrapper.unflatten(flat, similar_tree=tree)
+
+        expected_leaves, expected_treedef = jax.tree_util.tree_flatten(tree)
+        leaves, treedef = jax.tree_util.tree_flatten(unflattened)
+        self.assertEqual(treedef, expected_treedef)
+        for r, e in zip(leaves, expected_leaves):
+            onp.testing.assert_array_equal(r, e)
