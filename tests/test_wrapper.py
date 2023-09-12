@@ -1,6 +1,7 @@
 # type: ignore
 """Tests for `wrapper`."""
 
+import itertools
 import unittest
 
 import autograd
@@ -11,7 +12,6 @@ import numpy as onp
 import parameterized
 
 from agjax import wrapper
-
 
 TEST_FNS_AND_ARGS = (
     (  # Basic scalar-valued function, real outputs.
@@ -97,11 +97,14 @@ class WrapperTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Found duplicate"):
             wrapped(1.0, 2.0)
 
-    def test_function_has_no_differentiable_outputs(self):
+    @parameterized.parameterized.expand([[True], [False]])
+    def test_function_has_no_differentiable_outputs(self, enable_jac):
         def fn(x, y):
             return (x, y)
 
-        wrapped = wrapper.wrap_for_jax(fn, nondiff_outputnums=(0, 1))
+        wrapped = wrapper.wrap_for_jax(
+            fn, nondiff_outputnums=(0, 1), enable_jac=enable_jac
+        )
         with self.assertRaisesRegex(ValueError, "At least one differentiable output"):
             wrapped(1.0, 2.0)
         with self.assertRaisesRegex(ValueError, "At least one differentiable output"):
@@ -109,8 +112,15 @@ class WrapperTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "At least one differentiable output"):
             jax.value_and_grad(wrapped)(1.0, 2.0)
 
-    @parameterized.parameterized.expand(TEST_FNS_AND_ARGS)
-    def test_wrapped_matches_autograd(self, autograd_fn, args):
+    @parameterized.parameterized.expand(
+        [
+            [fn, args, enable_jac]
+            for (fn, args), enable_jac in itertools.product(
+                TEST_FNS_AND_ARGS, [True, False]
+            )
+        ]
+    )
+    def test_wrapped_matches_autograd(self, autograd_fn, args, enable_jac):
         # Tests case where all arguments can be differentiated
         # with respect to, and all outputs are differentiable.
         expected_outputs = autograd_fn(*args)
@@ -119,6 +129,7 @@ class WrapperTest(unittest.TestCase):
             autograd_fn,
             nondiff_argnums=(),
             nondiff_outputnums=(),
+            enable_jac=enable_jac,
         )
         for v, ev in zip(
             jax.tree_util.tree_leaves(wrapped(*args)),
@@ -144,7 +155,8 @@ class WrapperTest(unittest.TestCase):
         ):
             onp.testing.assert_allclose(g, eg)
 
-    def test_nondiff_argnums_and_outputnums(self):
+    @parameterized.parameterized.expand([[True], [False]])
+    def test_nondiff_argnums_and_outputnums(self, enable_jac):
         def autograd_fn(x, y, int_arg, str_arg):
             return (
                 npa.sum(x**2 + y * int_arg),
@@ -153,7 +165,10 @@ class WrapperTest(unittest.TestCase):
             )
 
         wrapped = wrapper.wrap_for_jax(
-            autograd_fn, nondiff_argnums=(2, 3), nondiff_outputnums=2
+            autograd_fn,
+            nondiff_argnums=(2, 3),
+            nondiff_outputnums=2,
+            enable_jac=enable_jac,
         )
 
         args = (0.3 + 2.2j, -11.0 + 0.0j, 3, "test")
@@ -193,6 +208,30 @@ class WrapperTest(unittest.TestCase):
         self.assertEqual(aux, expected_aux)
         for e, g in zip(expected_grad, grad):
             onp.testing.assert_allclose(e, g)
+
+    def test_jacrev(self):
+        def fn(x):
+            return x**2
+
+        x0 = jnp.arange(10).reshape(2, 5).astype(float)
+        expected = jax.jacrev(fn)(x0)
+
+        wrapped = wrapper.wrap_for_jax(fn, enable_jac=True)
+        result = jax.jacrev(wrapped)(x0)
+
+        onp.testing.assert_allclose(result, expected)
+
+    def test_jacfwd(self):
+        def fn(x):
+            return x**2
+
+        x0 = jnp.arange(10).reshape(2, 5).astype(float)
+        expected = jax.jacfwd(fn)(x0)
+
+        wrapped = wrapper.wrap_for_jax(fn, enable_jac=True)
+        result = jax.jacfwd(wrapped)(x0)
+
+        onp.testing.assert_allclose(result, expected)
 
 
 class WrappedValueTest(unittest.TestCase):
