@@ -57,7 +57,7 @@ jobs:
           pip install -e .[tests]
       - name: Test with pytest
         run: |
-          pytest --cov=agjax agjax
+          pytest --cov=agjax tests
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3
         with:

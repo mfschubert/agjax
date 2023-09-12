@@ -64,23 +64,20 @@ def wrap_for_jax(
         return outputs if is_tuple_outputs else outputs[0]
 
     def _fwd_fn(*args_jax: Any) -> Any:
-        # Split arguments that can be differentiated with respect to, convert to
-        # numpy and flatten.
+        # Convert to numpy the args that can be differentiated with respect to.
         nondiff_args, diff_args = split_args_fn(args_jax)
-        diff_args_flat, unflatten_diff_args_fn = _flatten(_to_numpy(diff_args))
+        args = merge_args_fn(nondiff_args, _to_numpy(diff_args))
 
         # Variables updated nonlocally where `fn` is evaluated.
-        is_tuple_outputs = None
-        nondiff_outputs = None
-        unflatten_outputs_fn = None
+        is_tuple_outputs: bool = None  # type: ignore[assignment]
+        nondiff_outputs: Tuple[Any, ...] = None  # type: ignore[assignment]
+        diff_outputs_treedef: jax.tree_util.PyTreeDef = None
 
-        def _flat_fn(diff_args_flat: onp.ndarray) -> onp.ndarray:
+        def _tuple_fn(*args: Any) -> onp.ndarray:
             nonlocal is_tuple_outputs
             nonlocal nondiff_outputs
-            nonlocal unflatten_outputs_fn
+            nonlocal diff_outputs_treedef
 
-            diff_args = unflatten_diff_args_fn(diff_args_flat)
-            args = merge_args_fn(nondiff_args, diff_args)
             outputs = fn(*args)
             _validate_nondiff_outputnums_for_outputs(_nondiff_outputnums, outputs)
 
@@ -88,18 +85,24 @@ def wrap_for_jax(
             nondiff_outputs, diff_outputs = split_outputs_fn(outputs)
             nondiff_outputs = _arraybox_to_numpy(nondiff_outputs)
             nondiff_outputs = tuple([_WrappedValue(o) for o in nondiff_outputs or []])
-            diff_outputs_flat, unflatten_outputs_fn = _flatten(diff_outputs)
-            return diff_outputs_flat
+            diff_outputs_leaves, diff_outputs_treedef = jax.tree_util.tree_flatten(
+                diff_outputs
+            )
+            return autograd.builtins.tuple(tuple(diff_outputs_leaves))
 
-        flat_vjp_fn, diff_outputs_flat = autograd.make_vjp(_flat_fn)(diff_args_flat)
-        diff_outputs = unflatten_outputs_fn(diff_outputs_flat)  # type: ignore[misc]
+        diff_argnums = tuple(i for i in range(len(args)) if i not in _nondiff_argnums)
+        tuple_vjp_fn, diff_outputs_leaves = autograd.make_vjp(
+            _tuple_fn, argnum=diff_argnums
+        )(*args)
+        diff_outputs = jax.tree_util.tree_unflatten(
+            diff_outputs_treedef, diff_outputs_leaves
+        )
         outputs = merge_outputs_fn(nondiff_outputs, _to_jax(diff_outputs))
         outputs = outputs if is_tuple_outputs else outputs[0]
 
         def _vjp_fn(*diff_outputs: Any) -> Any:
-            diff_outputs_flat, _ = _flatten(_to_numpy(diff_outputs))
-            grad_flat = flat_vjp_fn(onp.asarray(diff_outputs_flat))
-            grad = unflatten_diff_args_fn(grad_flat)
+            diff_outputs_leaves = jax.tree_util.tree_leaves(diff_outputs)
+            grad = tuple_vjp_fn(_to_numpy(diff_outputs_leaves))
             # Note that there is no value associated with nondifferentiable
             # arguments in the return of the vjp function.
             return _to_jax(grad)
@@ -205,24 +208,6 @@ def _merge(
             for i in range(len(a) + len(b))
         ]
     )
-
-
-def _flatten(
-    tree: PyTree,
-) -> Tuple[onp.ndarray, Callable[[onp.ndarray], PyTree]]:
-    """Returns a pytree into a single numpy array, and an `unflatten_fn`."""
-    leaves, treedef = jax.tree_util.tree_flatten(tree)
-    flattened = npa.concatenate([leaf.flatten() for leaf in leaves])
-
-    sizes = [leaf.size for leaf in leaves]
-    shapes = [leaf.shape for leaf in leaves]
-
-    def unflatten_fn(flat: onp.ndarray) -> PyTree:
-        flat_leaves = npa.split(flat, onp.cumsum(sizes))
-        leaves = [leaf.reshape(s) for leaf, s in zip(flat_leaves, shapes)]
-        return jax.tree_util.tree_unflatten(treedef, leaves)
-
-    return flattened, unflatten_fn
 
 
 def _to_jax(tree: PyTree) -> PyTree:

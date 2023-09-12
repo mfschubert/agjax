@@ -22,6 +22,10 @@ TEST_FNS_AND_ARGS = (
         lambda x, y: x**2 + y,
         (3.0, 4.0),
     ),
+    (  # Two arguments, scalar output wrapped in a tuple.
+        lambda x, y: (x**2 + y,),
+        (3.0, 4.0),
+    ),
     (  # Two arguments, two outputs.
         lambda x, y: (x**2 + y, x - y),
         (3.0, 4.0),
@@ -186,6 +190,10 @@ class WrappedValueTest(unittest.TestCase):
         self.assertSequenceEqual(leaves, ())
         restored = jax.tree_util.tree_unflatten(treedef, leaves)
         self.assertSequenceEqual(restored.value, (1, 2, 3, 4))
+
+    def test_wrapped_repr(self):
+        wrapped = wrapper._WrappedValue(value="my_string")
+        self.assertSequenceEqual(str(wrapped), "_WrappedValue(my_string)")
 
 
 class ValidateIdxTest(unittest.TestCase):
