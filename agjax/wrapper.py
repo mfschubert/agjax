@@ -2,7 +2,7 @@
 
 import functools
 from concurrent import futures
-from typing import Any, Callable, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
 
 import autograd
 import autograd.numpy as npa
@@ -75,14 +75,15 @@ def wrap_for_jax(
     def _fwd_fn(*args_jax: Any) -> PyTree:
         # Convert to numpy the args that can be differentiated with respect to.
         nondiff_args, diff_args = split_args_fn(args_jax)
-        args = merge_args_fn(nondiff_args, _to_numpy(diff_args))
+        diff_args = _to_numpy(diff_args)
+        args = merge_args_fn(nondiff_args, diff_args)
 
         # Variables updated nonlocally where `fn` is evaluated.
         is_tuple_outputs: bool = None  # type: ignore[assignment]
         nondiff_outputs: Tuple[PyTree, ...] = None  # type: ignore[assignment]
         diff_outputs_treedef: tree_util.PyTreeDef = None
 
-        def _tuple_fn(*args: Tuple[onp.ndarray, ...]) -> onp.ndarray:
+        def _tuple_fn(*args: Any) -> autograd.builtins.tuple:
             nonlocal is_tuple_outputs
             nonlocal nondiff_outputs
             nonlocal diff_outputs_treedef
@@ -97,11 +98,12 @@ def wrap_for_jax(
             diff_outputs_leaves, diff_outputs_treedef = tree_util.tree_flatten(
                 diff_outputs
             )
-            return autograd.builtins.tuple(tuple(diff_outputs_leaves))
+            return autograd.builtins.tuple(diff_outputs_leaves)
 
         diff_argnums = tuple(i for i in range(len(args)) if i not in _nondiff_argnums)
         tuple_vjp_fn, diff_outputs_leaves = autograd.make_vjp(
-            _tuple_fn, argnum=diff_argnums
+            _tuple_fn,
+            argnum=diff_argnums,
         )(*args)
         diff_outputs = tree_util.tree_unflatten(
             diff_outputs_treedef, diff_outputs_leaves
@@ -142,7 +144,7 @@ def wrap_for_jax(
 
     # If `enable_jac` is `True`, use the Jacobian-compatible wrapper.
 
-    def _construct_linearization(*args_jax: Any) -> Callable[[PyTree], PyTree]:
+    def _construct_linearization(*args_jax: Any) -> Callable[[Any], PyTree]:
         nondiff_args, diff_args = split_args_fn(args_jax)
         diff_args_constant = jax.lax.stop_gradient(diff_args)
         del diff_args, args_jax
@@ -161,7 +163,7 @@ def wrap_for_jax(
 
         def _linear_fn(*args_jax: PyTree) -> PyTree:
             # The linear function is roughly defined by,
-            #    y = outputs + jacobian * (args - args_constant)
+            #    y = outputs + jacobian @ (args - args_constant)
             _, diff_args = split_args_fn(args_jax)
 
             def _output_delta_value(vjp: PyTree) -> jnp.ndarray:
@@ -174,10 +176,12 @@ def wrap_for_jax(
                 return jnp.sum(jnp.asarray(tree_util.tree_leaves(value)))
 
             diff_outputs_delta_flat = [_output_delta_value(vjp) for vjp in one_hot_vjps]
+
             diff_outputs_delta = unflatten(
                 flat=jnp.asarray(diff_outputs_delta_flat),
-                similar_tree=diff_outputs_constant,
+                example=diff_outputs_constant,
             )
+
             diff_outputs = tree_util.tree_map(
                 lambda a, b: a + b, diff_outputs_constant, diff_outputs_delta
             )
@@ -301,10 +305,10 @@ def _ensure_tuple(xs: PyTree) -> Tuple[PyTree, bool]:
     return (xs if is_tuple else (xs,)), is_tuple
 
 
-def one_hot_like(tree: PyTree) -> Tuple[PyTree, ...]:
+def one_hot_like(tree: PyTree) -> List[PyTree]:
     """Returns a tuple of one-hot pytrees matching the structure of `tree`."""
     num = onp.sum([onp.size(leaf) for leaf in jax.tree_util.tree_leaves(tree)])
-    return tuple(one_hot_like_at_idx(tree, i) for i in range(num))
+    return [one_hot_like_at_idx(tree, i) for i in range(num)]
 
 
 def one_hot_like_at_idx(tree: PyTree, hot_idx: int) -> PyTree:
@@ -331,9 +335,9 @@ def one_hot_like_at_idx(tree: PyTree, hot_idx: int) -> PyTree:
     return jax.tree_util.tree_unflatten(treedef, one_hot_leaves)
 
 
-def unflatten(flat: jnp.ndarray, similar_tree: PyTree) -> PyTree:
-    """Unflattens an array into a pytree matching the structure of `similar_tree`."""
-    similar_leaves, treedef = tree_util.tree_flatten(similar_tree)
+def unflatten(flat: jnp.ndarray, example: PyTree) -> PyTree:
+    """Unflattens an array into a pytree matching the structure of `example`."""
+    similar_leaves, treedef = tree_util.tree_flatten(example)
     sizes = [onp.size(leaf) for leaf in similar_leaves]
     shapes = [onp.shape(leaf) for leaf in similar_leaves]
 

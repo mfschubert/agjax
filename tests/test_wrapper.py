@@ -8,6 +8,7 @@ import autograd
 import autograd.numpy as npa
 import jax
 import jax.numpy as jnp
+from jax import tree_util
 import numpy as onp
 import parameterized
 
@@ -116,7 +117,7 @@ class WrapperTest(unittest.TestCase):
         [
             [fn, args, enable_jac]
             for (fn, args), enable_jac in itertools.product(
-                TEST_FNS_AND_ARGS, [True, False]
+                TEST_FNS_AND_ARGS, [False, True]
             )
         ]
     )
@@ -124,7 +125,6 @@ class WrapperTest(unittest.TestCase):
         # Tests case where all arguments can be differentiated
         # with respect to, and all outputs are differentiable.
         expected_outputs = autograd_fn(*args)
-
         wrapped = wrapper.wrap_for_jax(
             autograd_fn,
             nondiff_argnums=(),
@@ -132,26 +132,26 @@ class WrapperTest(unittest.TestCase):
             enable_jac=enable_jac,
         )
         for v, ev in zip(
-            jax.tree_util.tree_leaves(wrapped(*args)),
-            jax.tree_util.tree_leaves(expected_outputs),
+            tree_util.tree_leaves(wrapped(*args)),
+            tree_util.tree_leaves(expected_outputs),
         ):
             onp.testing.assert_allclose(v, ev)
 
         def autograd_scalar_fn(*args):
             outputs = autograd_fn(*args)
-            outputs = jax.tree_util.tree_leaves(outputs)
+            outputs = tree_util.tree_leaves(outputs)
             return npa.sum([npa.sum(npa.abs(o) ** 2) for o in outputs])
 
         def jax_scalar_fn(*args):
             outputs = wrapped(*args)
-            outputs = jax.tree_util.tree_leaves(outputs)
+            outputs = tree_util.tree_leaves(outputs)
             return jnp.sum(jnp.asarray([jnp.sum(jnp.abs(o) ** 2) for o in outputs]))
 
         expected_grad = autograd.grad(autograd_scalar_fn)(*args)
         grad = jax.grad(jax_scalar_fn)(*args)
 
         for g, eg in zip(
-            jax.tree_util.tree_leaves(grad), jax.tree_util.tree_leaves(expected_grad)
+            tree_util.tree_leaves(grad), tree_util.tree_leaves(expected_grad)
         ):
             onp.testing.assert_allclose(g, eg)
 
@@ -237,9 +237,9 @@ class WrapperTest(unittest.TestCase):
 class WrappedValueTest(unittest.TestCase):
     def test_flatten_unflatten(self):
         wrapped = wrapper._WrappedValue(value=(1, 2, 3, 4))
-        leaves, treedef = jax.tree_util.tree_flatten(wrapped)
+        leaves, treedef = tree_util.tree_flatten(wrapped)
         self.assertSequenceEqual(leaves, ())
-        restored = jax.tree_util.tree_unflatten(treedef, leaves)
+        restored = tree_util.tree_unflatten(treedef, leaves)
         self.assertSequenceEqual(restored.value, (1, 2, 3, 4))
 
     def test_wrapped_repr(self):
@@ -289,7 +289,7 @@ class OneHotTest(unittest.TestCase):
         tree = {"a": onp.ones((4, 2)), "b": (2.0, 3.0, {"c": onp.ones((4,))})}
         for i in range(14):
             one_hot = wrapper.one_hot_like_at_idx(tree, i)
-            leaves = jax.tree_util.tree_leaves(one_hot)
+            leaves = tree_util.tree_leaves(one_hot)
             flat = onp.concatenate([leaf.flatten() for leaf in leaves])
             expected = onp.zeros((14,))
             expected[i] = 1.0
@@ -307,8 +307,8 @@ class OneHotTest(unittest.TestCase):
         result = wrapper.one_hot_like(tree)
 
         for r_tree, e_tree in zip(result, expected):
-            r_leaves, r_treedef = jax.tree_util.tree_flatten(r_tree)
-            e_leaves, e_treedef = jax.tree_util.tree_flatten(e_tree)
+            r_leaves, r_treedef = tree_util.tree_flatten(r_tree)
+            e_leaves, e_treedef = tree_util.tree_flatten(e_tree)
             self.assertEqual(r_treedef, e_treedef)
             for r, e in zip(r_leaves, e_leaves):
                 onp.testing.assert_array_equal(r, e)
@@ -319,12 +319,12 @@ class UnflattenTreeTest(unittest.TestCase):
         tree = {"a": onp.ones((4, 2)), "b": (2.0, 3.0, {"c": onp.ones((4,))})}
 
         flat = jnp.concatenate(
-            [jnp.asarray(leaf).flatten() for leaf in jax.tree_util.tree_leaves(tree)]
+            [jnp.asarray(leaf).flatten() for leaf in tree_util.tree_leaves(tree)]
         )
-        unflattened = wrapper.unflatten(flat, similar_tree=tree)
+        unflattened = wrapper.unflatten(flat, example=tree)
 
-        expected_leaves, expected_treedef = jax.tree_util.tree_flatten(tree)
-        leaves, treedef = jax.tree_util.tree_flatten(unflattened)
+        expected_leaves, expected_treedef = tree_util.tree_flatten(tree)
+        leaves, treedef = tree_util.tree_flatten(unflattened)
         self.assertEqual(treedef, expected_treedef)
         for r, e in zip(leaves, expected_leaves):
             onp.testing.assert_array_equal(r, e)
