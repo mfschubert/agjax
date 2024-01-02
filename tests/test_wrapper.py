@@ -1,17 +1,18 @@
 # type: ignore
 """Tests for `wrapper`."""
 
+import itertools
 import unittest
 
 import autograd
 import autograd.numpy as npa
 import jax
 import jax.numpy as jnp
+from jax import tree_util
 import numpy as onp
 import parameterized
 
 from agjax import wrapper
-
 
 TEST_FNS_AND_ARGS = (
     (  # Basic scalar-valued function, real outputs.
@@ -97,11 +98,14 @@ class WrapperTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Found duplicate"):
             wrapped(1.0, 2.0)
 
-    def test_function_has_no_differentiable_outputs(self):
+    @parameterized.parameterized.expand([[True], [False]])
+    def test_function_has_no_differentiable_outputs(self, enable_jac):
         def fn(x, y):
             return (x, y)
 
-        wrapped = wrapper.wrap_for_jax(fn, nondiff_outputnums=(0, 1))
+        wrapped = wrapper.wrap_for_jax(
+            fn, nondiff_outputnums=(0, 1), enable_jac=enable_jac
+        )
         with self.assertRaisesRegex(ValueError, "At least one differentiable output"):
             wrapped(1.0, 2.0)
         with self.assertRaisesRegex(ValueError, "At least one differentiable output"):
@@ -109,42 +113,50 @@ class WrapperTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "At least one differentiable output"):
             jax.value_and_grad(wrapped)(1.0, 2.0)
 
-    @parameterized.parameterized.expand(TEST_FNS_AND_ARGS)
-    def test_wrapped_matches_autograd(self, autograd_fn, args):
+    @parameterized.parameterized.expand(
+        [
+            [fn, args, enable_jac]
+            for (fn, args), enable_jac in itertools.product(
+                TEST_FNS_AND_ARGS, [False, True]
+            )
+        ]
+    )
+    def test_wrapped_matches_autograd(self, autograd_fn, args, enable_jac):
         # Tests case where all arguments can be differentiated
         # with respect to, and all outputs are differentiable.
         expected_outputs = autograd_fn(*args)
-
         wrapped = wrapper.wrap_for_jax(
             autograd_fn,
             nondiff_argnums=(),
             nondiff_outputnums=(),
+            enable_jac=enable_jac,
         )
         for v, ev in zip(
-            jax.tree_util.tree_leaves(wrapped(*args)),
-            jax.tree_util.tree_leaves(expected_outputs),
+            tree_util.tree_leaves(wrapped(*args)),
+            tree_util.tree_leaves(expected_outputs),
         ):
             onp.testing.assert_allclose(v, ev)
 
         def autograd_scalar_fn(*args):
             outputs = autograd_fn(*args)
-            outputs = jax.tree_util.tree_leaves(outputs)
+            outputs = tree_util.tree_leaves(outputs)
             return npa.sum([npa.sum(npa.abs(o) ** 2) for o in outputs])
 
         def jax_scalar_fn(*args):
             outputs = wrapped(*args)
-            outputs = jax.tree_util.tree_leaves(outputs)
+            outputs = tree_util.tree_leaves(outputs)
             return jnp.sum(jnp.asarray([jnp.sum(jnp.abs(o) ** 2) for o in outputs]))
 
         expected_grad = autograd.grad(autograd_scalar_fn)(*args)
         grad = jax.grad(jax_scalar_fn)(*args)
 
         for g, eg in zip(
-            jax.tree_util.tree_leaves(grad), jax.tree_util.tree_leaves(expected_grad)
+            tree_util.tree_leaves(grad), tree_util.tree_leaves(expected_grad)
         ):
             onp.testing.assert_allclose(g, eg)
 
-    def test_nondiff_argnums_and_outputnums(self):
+    @parameterized.parameterized.expand([[True], [False]])
+    def test_nondiff_argnums_and_outputnums(self, enable_jac):
         def autograd_fn(x, y, int_arg, str_arg):
             return (
                 npa.sum(x**2 + y * int_arg),
@@ -153,7 +165,10 @@ class WrapperTest(unittest.TestCase):
             )
 
         wrapped = wrapper.wrap_for_jax(
-            autograd_fn, nondiff_argnums=(2, 3), nondiff_outputnums=2
+            autograd_fn,
+            nondiff_argnums=(2, 3),
+            nondiff_outputnums=2,
+            enable_jac=enable_jac,
         )
 
         args = (0.3 + 2.2j, -11.0 + 0.0j, 3, "test")
@@ -194,13 +209,37 @@ class WrapperTest(unittest.TestCase):
         for e, g in zip(expected_grad, grad):
             onp.testing.assert_allclose(e, g)
 
+    def test_jacrev(self):
+        def fn(x):
+            return x**2
+
+        x0 = jnp.arange(10).reshape(2, 5).astype(float)
+        expected = jax.jacrev(fn)(x0)
+
+        wrapped = wrapper.wrap_for_jax(fn, enable_jac=True)
+        result = jax.jacrev(wrapped)(x0)
+
+        onp.testing.assert_allclose(result, expected)
+
+    def test_jacfwd(self):
+        def fn(x):
+            return x**2
+
+        x0 = jnp.arange(10).reshape(2, 5).astype(float)
+        expected = jax.jacfwd(fn)(x0)
+
+        wrapped = wrapper.wrap_for_jax(fn, enable_jac=True)
+        result = jax.jacfwd(wrapped)(x0)
+
+        onp.testing.assert_allclose(result, expected)
+
 
 class WrappedValueTest(unittest.TestCase):
     def test_flatten_unflatten(self):
         wrapped = wrapper._WrappedValue(value=(1, 2, 3, 4))
-        leaves, treedef = jax.tree_util.tree_flatten(wrapped)
+        leaves, treedef = tree_util.tree_flatten(wrapped)
         self.assertSequenceEqual(leaves, ())
-        restored = jax.tree_util.tree_unflatten(treedef, leaves)
+        restored = tree_util.tree_unflatten(treedef, leaves)
         self.assertSequenceEqual(restored.value, (1, 2, 3, 4))
 
     def test_wrapped_repr(self):
@@ -243,3 +282,49 @@ class SplitMergeTest(unittest.TestCase):
         merged = wrapper._merge(a, b, idx)
         for s, m in zip(sequence, merged):
             onp.testing.assert_array_equal(s, m)
+
+
+class OneHotTest(unittest.TestCase):
+    def test_one_hot_at_idx(self):
+        tree = {"a": onp.ones((4, 2)), "b": (2.0, 3.0, {"c": onp.ones((4,))})}
+        for i in range(14):
+            one_hot = wrapper.one_hot_like_at_idx(tree, i)
+            leaves = tree_util.tree_leaves(one_hot)
+            flat = onp.concatenate([leaf.flatten() for leaf in leaves])
+            expected = onp.zeros((14,))
+            expected[i] = 1.0
+            onp.testing.assert_array_equal(flat, expected)
+
+    def test_one_hot(self):
+        tree = {"a": onp.ones((4, 2)), "b": (2.0, 3.0, {"c": onp.ones((4,))})}
+
+        expected = []
+        for i in range(14):
+            expected_flat = onp.zeros((14,))
+            expected_flat[i] = 1.0
+            expected.append(wrapper.unflatten(expected_flat, tree))
+
+        result = wrapper.one_hot_like(tree)
+
+        for r_tree, e_tree in zip(result, expected):
+            r_leaves, r_treedef = tree_util.tree_flatten(r_tree)
+            e_leaves, e_treedef = tree_util.tree_flatten(e_tree)
+            self.assertEqual(r_treedef, e_treedef)
+            for r, e in zip(r_leaves, e_leaves):
+                onp.testing.assert_array_equal(r, e)
+
+
+class UnflattenTreeTest(unittest.TestCase):
+    def test_unflatten(self):
+        tree = {"a": onp.ones((4, 2)), "b": (2.0, 3.0, {"c": onp.ones((4,))})}
+
+        flat = jnp.concatenate(
+            [jnp.asarray(leaf).flatten() for leaf in tree_util.tree_leaves(tree)]
+        )
+        unflattened = wrapper.unflatten(flat, example=tree)
+
+        expected_leaves, expected_treedef = tree_util.tree_flatten(tree)
+        leaves, treedef = tree_util.tree_flatten(unflattened)
+        self.assertEqual(treedef, expected_treedef)
+        for r, e in zip(leaves, expected_leaves):
+            onp.testing.assert_array_equal(r, e)
