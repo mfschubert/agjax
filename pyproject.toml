@@ -34,7 +34,7 @@ requires-python = ">=3.7"
 tests = ["pytest", "pytest-cov", "pytest-xdist"]
 docs = [
     "matplotlib",
-    "jupyter-book==0.15.1",
+    "jupyter-book==1.0.0",
     "sphinx-autodoc-typehints",
     "sphinx-click",
     "ceviche_challenges"
