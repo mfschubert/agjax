@@ -46,7 +46,7 @@ def validate_nondiff_outputnums_for_outputs(
 
 def validate_nondiff_argnums_for_args(
     nondiff_argnums: Sequence[int],
-    args: Tuple[Any],
+    args: Tuple[Any, ...],
 ) -> None:
     """Validates that `nondiff_argnums` is compatible with a `args`."""
     validate_idx_for_sequence_len(nondiff_argnums, len(args))

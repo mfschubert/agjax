@@ -1,7 +1,7 @@
 """Defines a jax wrapper for autograd-differentiable functions."""
 
 import functools
-from typing import Any, Callable, Tuple, Union
+from typing import Any, Callable, List, Tuple, Union
 
 import autograd
 import jax
@@ -58,11 +58,11 @@ def wrap_for_jax(
     # Vjp functions created in the "forward stage" of the calculation, and stored in
     # the `vjp_fns` list. When the calculation switches from the backward to the
     # forward stage, the list of vjp functions is cleared.
-    vjp_fns = []
+    vjp_fns: List[jax.tree_util.Partial] = []
     stage = _BACKWARD_STAGE
 
-    @jax.custom_vjp
-    def _fn(*args):
+    @jax.custom_vjp  # type: ignore[misc]
+    def _fn(*args: Any) -> Any:
         utils.validate_nondiff_argnums_for_args(_nondiff_argnums, args)
         outputs = jax.pure_callback(
             lambda *args: utils.to_jax(fn(*utils.to_numpy(args))),
@@ -72,8 +72,8 @@ def wrap_for_jax(
         utils.validate_nondiff_outputnums_for_outputs(_nondiff_outputnums, outputs)
         return outputs
 
-    def _fwd_fn(*args):
-        def make_vjp(*args):
+    def _fwd_fn(*args: Any) -> Any:
+        def make_vjp(*args: Any) -> Any:
             nonlocal stage
             if stage == _BACKWARD_STAGE:
                 vjp_fns.clear()
@@ -132,8 +132,8 @@ def wrap_for_jax(
         )
         return outputs, (args, key)
 
-    def _bwd_fn(*bwd_args):
-        def _pure_fn(key, tangents):
+    def _bwd_fn(*bwd_args: Any) -> Any:
+        def _pure_fn(key: jnp.ndarray, tangents: Tuple[Any, ...]) -> Any:
             nonlocal stage
             stage = _BACKWARD_STAGE
             vjp_fn = vjp_fns[int(key)]
@@ -147,4 +147,4 @@ def wrap_for_jax(
 
     _fn.defvjp(_fwd_fn, _bwd_fn)
 
-    return _fn
+    return _fn  # type: ignore[no-any-return]

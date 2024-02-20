@@ -358,4 +358,3 @@ class WrapperTest(unittest.TestCase):
             jax.tree_util.tree_leaves(result), jax.tree_util.tree_leaves(expected)
         ):
             onp.testing.assert_allclose(g, eg, rtol=1e-6)
-
