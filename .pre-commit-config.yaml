@@ -42,7 +42,7 @@ repos:
     rev: "v1.0.1"
     hooks:
       - id: mypy
-        exclude: ^(docs/|example-plugin/|tests/fixtures)
+        exclude: ^(docs/|example-plugin/|tests/|fixtures/)
         additional_dependencies:
           - "pydantic"
 
