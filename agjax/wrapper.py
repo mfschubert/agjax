@@ -10,6 +10,8 @@ import jax
 import jax.numpy as jnp
 import numpy as onp
 
+from agjax import utils
+
 PyTree = Any
 
 
@@ -39,34 +41,34 @@ def wrap_for_jax(
     Returns:
         The wrapped function.
     """
-    _nondiff_argnums, _ = _ensure_tuple(nondiff_argnums)
-    _nondiff_outputnums, _ = _ensure_tuple(nondiff_outputnums)
+    _nondiff_argnums, _ = utils.ensure_tuple(nondiff_argnums)
+    _nondiff_outputnums, _ = utils.ensure_tuple(nondiff_outputnums)
     del nondiff_argnums, nondiff_outputnums
 
-    split_args_fn = functools.partial(_split, idx=_nondiff_argnums)
-    merge_args_fn = functools.partial(_merge, idx=_nondiff_argnums)
-    split_outputs_fn = functools.partial(_split, idx=_nondiff_outputnums)
-    merge_outputs_fn = functools.partial(_merge, idx=_nondiff_outputnums)
+    split_args_fn = functools.partial(utils.split, idx=_nondiff_argnums)
+    merge_args_fn = functools.partial(utils.merge, idx=_nondiff_argnums)
+    split_outputs_fn = functools.partial(utils.split, idx=_nondiff_outputnums)
+    merge_outputs_fn = functools.partial(utils.merge, idx=_nondiff_outputnums)
 
     @functools.partial(jax.custom_vjp, nondiff_argnums=_nondiff_argnums)
     def _fn(*args_jax: Any) -> Any:
         # Arguments that can be differentiated with respect to are jax arrays, and
         # must be converged to numpy. Extract these, convert to numpy, and remerge.
         nondiff_args, diff_args = split_args_fn(args_jax)
-        args = merge_args_fn(nondiff_args, _to_numpy(diff_args))
+        args = merge_args_fn(nondiff_args, utils.to_numpy(diff_args))
         outputs = fn(*args)
-        _validate_nondiff_outputnums_for_outputs(_nondiff_outputnums, outputs)
+        utils.validate_nondiff_outputnums_for_outputs(_nondiff_outputnums, outputs)
         # Convert differentiable outputs to jax arrays.
-        outputs, is_tuple_outputs = _ensure_tuple(outputs)
+        outputs, is_tuple_outputs = utils.ensure_tuple(outputs)
         nondiff_outputs, diff_outputs = split_outputs_fn(outputs)
-        nondiff_outputs = tuple([_WrappedValue(o) for o in nondiff_outputs])
-        outputs = merge_outputs_fn(nondiff_outputs, _to_jax(diff_outputs))
+        nondiff_outputs = tuple([utils.WrappedValue(o) for o in nondiff_outputs])
+        outputs = merge_outputs_fn(nondiff_outputs, utils.to_jax(diff_outputs))
         return outputs if is_tuple_outputs else outputs[0]
 
     def _fwd_fn(*args_jax: Any) -> Any:
         # Convert to numpy the args that can be differentiated with respect to.
         nondiff_args, diff_args = split_args_fn(args_jax)
-        args = merge_args_fn(nondiff_args, _to_numpy(diff_args))
+        args = merge_args_fn(nondiff_args, utils.to_numpy(diff_args))
 
         # Variables updated nonlocally where `fn` is evaluated.
         is_tuple_outputs: bool = None  # type: ignore[assignment]
@@ -79,12 +81,14 @@ def wrap_for_jax(
             nonlocal diff_outputs_treedef
 
             outputs = fn(*args)
-            _validate_nondiff_outputnums_for_outputs(_nondiff_outputnums, outputs)
+            utils.validate_nondiff_outputnums_for_outputs(_nondiff_outputnums, outputs)
 
-            outputs, is_tuple_outputs = _ensure_tuple(outputs)
+            outputs, is_tuple_outputs = utils.ensure_tuple(outputs)
             nondiff_outputs, diff_outputs = split_outputs_fn(outputs)
-            nondiff_outputs = _arraybox_to_numpy(nondiff_outputs)
-            nondiff_outputs = tuple([_WrappedValue(o) for o in nondiff_outputs or []])
+            nondiff_outputs = utils.arraybox_to_numpy(nondiff_outputs)
+            nondiff_outputs = tuple(
+                [utils.WrappedValue(o) for o in nondiff_outputs or []]
+            )
             diff_outputs_leaves, diff_outputs_treedef = jax.tree_util.tree_flatten(
                 diff_outputs
             )
@@ -97,15 +101,15 @@ def wrap_for_jax(
         diff_outputs = jax.tree_util.tree_unflatten(
             diff_outputs_treedef, diff_outputs_leaves
         )
-        outputs = merge_outputs_fn(nondiff_outputs, _to_jax(diff_outputs))
+        outputs = merge_outputs_fn(nondiff_outputs, utils.to_jax(diff_outputs))
         outputs = outputs if is_tuple_outputs else outputs[0]
 
         def _vjp_fn(*diff_outputs: Any) -> Any:
             diff_outputs_leaves = jax.tree_util.tree_leaves(diff_outputs)
-            grad = tuple_vjp_fn(_to_numpy(diff_outputs_leaves))
+            grad = tuple_vjp_fn(utils.to_numpy(diff_outputs_leaves))
             # Note that there is no value associated with nondifferentiable
             # arguments in the return of the vjp function.
-            return _to_jax(grad)
+            return utils.to_jax(grad)
 
         return outputs, jax.tree_util.Partial(_vjp_fn)
 
@@ -120,115 +124,14 @@ def wrap_for_jax(
     _fn.defvjp(_fwd_fn, _bwd_fn)
 
     def _fn_with_unwrapped_outputs(*args_jax: Any) -> Any:
-        _validate_idx_for_sequence_len(_nondiff_argnums, len(args_jax))
+        utils.validate_idx_for_sequence_len(_nondiff_argnums, len(args_jax))
         # Wrapped version of our function with custom vjp, which unpacks the
         # wrapped values associated with nondifferentiable outputs.
         outputs = _fn(*args_jax)
         if not isinstance(outputs, tuple):
             return outputs
-        return tuple([o.value if isinstance(o, _WrappedValue) else o for o in outputs])
+        return tuple(
+            [o.value if isinstance(o, utils.WrappedValue) else o for o in outputs]
+        )
 
     return _fn_with_unwrapped_outputs
-
-
-class _WrappedValue:
-    """Wraps a value treated as an auxilliary quantity of a pytree node."""
-
-    def __init__(self, value: Any) -> None:
-        self.value = value
-
-    def __repr__(self) -> str:
-        return f"_WrappedValue({self.value})"
-
-
-jax.tree_util.register_pytree_node(
-    _WrappedValue,
-    flatten_func=lambda w: ((), (w.value,)),
-    unflatten_func=lambda v, _: _WrappedValue(*v),
-)
-
-
-def _validate_nondiff_outputnums_for_outputs(
-    nondiff_outputnums: Sequence[int],
-    maybe_tuple_outputs: Any,
-) -> None:
-    """Validates that `nondiff_outputnums` is compatible with a `outputs`."""
-    outputs_length = (
-        len(maybe_tuple_outputs) if isinstance(maybe_tuple_outputs, tuple) else 1
-    )
-    _validate_idx_for_sequence_len(nondiff_outputnums, outputs_length)
-    if outputs_length <= len(nondiff_outputnums):
-        raise ValueError(
-            f"At least one differentiable output is required, but got "
-            f"`nondiff_outputnums` of {nondiff_outputnums} when `fn` "
-            f"has {outputs_length} output(s)."
-        )
-
-
-def _validate_idx_for_sequence_len(idx: Sequence[int], sequence_length: int) -> None:
-    """Validates that `idx` is compatible with a sequence length."""
-    if not all(i in range(-sequence_length, sequence_length) for i in idx):
-        raise ValueError(
-            f"Found out of bounds values in `idx`, got {idx} when "
-            f"`sequence_length` is {sequence_length}."
-        )
-    positive_idx = [i % sequence_length for i in idx]
-    if len(positive_idx) != len(set(positive_idx)):
-        raise ValueError(
-            f"Found duplicate values in `idx`, got {idx} when "
-            f"`sequence_length` is {sequence_length}."
-        )
-
-
-def _split(
-    a: Tuple[Any, ...],
-    idx: Tuple[int, ...],
-) -> Tuple[Tuple[Any, ...], Tuple[Any, ...]]:
-    """Splits the sequence `a` into two sequences."""
-    _validate_idx_for_sequence_len(idx, len(a))
-    return (
-        tuple([a[i] for i in idx]),
-        tuple([a[i] for i in range(len(a)) if i not in idx]),
-    )
-
-
-def _merge(
-    a: Sequence[Any],
-    b: Sequence[Any],
-    idx: Sequence[int],
-) -> Tuple[Any, ...]:
-    """Merges the sequences `a` and `b`, undoing a `_split` operation."""
-    _validate_idx_for_sequence_len(idx, len(a) + len(b))
-    positive_idx = [i % (len(a) + len(b)) for i in idx]
-    iter_a = iter(a)
-    iter_b = iter(b)
-    return tuple(
-        [
-            next(iter_a) if i in positive_idx else next(iter_b)
-            for i in range(len(a) + len(b))
-        ]
-    )
-
-
-def _to_jax(tree: PyTree) -> PyTree:
-    """Converts leaves of a pytree to jax arrays."""
-    return jax.tree_util.tree_map(jnp.asarray, tree)
-
-
-def _to_numpy(tree: PyTree) -> PyTree:
-    """Converts leaves of a pytree to numpy arrays."""
-    return jax.tree_util.tree_map(onp.asarray, tree)
-
-
-def _arraybox_to_numpy(tree: PyTree) -> PyTree:
-    """Converts `ArrayBox` leaves of a pytree to numpy arrays."""
-    return jax.tree_util.tree_map(
-        lambda x: x._value if isinstance(x, npa.numpy_boxes.ArrayBox) else x,
-        tree,
-    )
-
-
-def _ensure_tuple(xs: Any) -> Tuple[Any, bool]:
-    """Returns `(xs, True)` if `xs` is a tuple, and `((xs,), False)` otherwise."""
-    is_tuple = isinstance(xs, tuple)
-    return (xs if is_tuple else (xs,)), is_tuple
