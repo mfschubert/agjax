@@ -1,12 +1,11 @@
 """Defines a utility functions for jax-autograd wrappers."""
 
-from typing import Any, Sequence, Tuple, Union
+from typing import Any, Sequence, Tuple
 
 import autograd.numpy as npa
 import jax
 import jax.numpy as jnp
 import numpy as onp
-
 
 PyTree = Any
 
@@ -42,6 +41,20 @@ def validate_nondiff_outputnums_for_outputs(
             f"At least one differentiable output is required, but got "
             f"`nondiff_outputnums` of {nondiff_outputnums} when `fn` "
             f"has {outputs_length} output(s)."
+        )
+
+
+def validate_nondiff_argnums_for_args(
+    nondiff_argnums: Sequence[int],
+    args: Tuple[Any],
+) -> None:
+    """Validates that `nondiff_argnums` is compatible with a `args`."""
+    validate_idx_for_sequence_len(nondiff_argnums, len(args))
+    if len(args) <= len(nondiff_argnums):
+        raise ValueError(
+            f"At least argument must be differentiated with respect to, but got "
+            f"`nondiff_argnums` of {nondiff_argnums} when `fn` has {len(args)} "
+            f"arguments(s)."
         )
 
 

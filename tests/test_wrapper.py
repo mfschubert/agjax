@@ -12,7 +12,6 @@ import parameterized
 
 from agjax import wrapper
 
-
 TEST_FNS_AND_ARGS = (
     (  # Basic scalar-valued function, real outputs.
         lambda x: x**2,

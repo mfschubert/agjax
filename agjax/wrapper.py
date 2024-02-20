@@ -1,13 +1,10 @@
 """Defines a jax wrapper for autograd-differentiable functions."""
 
-from typing import Any, Callable, Sequence, Tuple, Union
-
 import functools
+from typing import Any, Callable, Tuple, Union
 
 import autograd
-import autograd.numpy as npa
 import jax
-import jax.numpy as jnp
 import numpy as onp
 
 from agjax import utils
