@@ -72,10 +72,10 @@ exclude = '''  # Specify the files/dirs that should be ignored by the black form
 
 [tool.pytest.ini_options]
 testpaths = ["agjax/", "tests"]
-# addopts = --tb=no
-addopts = '--tb=short'
+addopts = ["--import-mode=importlib"]  # Allow tests with same name in different dirs.
 python_files = ["agjax/*.py", "notebooks/*.ipynb", "tests/*.py"]
 norecursedirs = ["extra/*.py"]
+
 
 [tool.flake8]
 max-line-length = 88
