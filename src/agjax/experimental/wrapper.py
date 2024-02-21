@@ -3,15 +3,13 @@
 import functools
 from typing import Any, Callable, List, Tuple, Union
 
-import autograd
+import autograd  # type: ignore[import-untyped]
 import jax
 import jax.numpy as jnp
 import numpy as onp
 from jax import tree_util
 
 from agjax import utils
-
-PyTree = Any
 
 _FORWARD_STAGE = "fwd"
 _BACKWARD_STAGE = "bwd"
@@ -58,7 +56,7 @@ def wrap_for_jax(
     # Vjp functions created in the "forward stage" of the calculation, and stored in
     # the `vjp_fns` list. When the calculation switches from the backward to the
     # forward stage, the list of vjp functions is cleared.
-    vjp_fns: List[jax.tree_util.Partial] = []
+    vjp_fns: List[tree_util.Partial] = []
     stage = _BACKWARD_STAGE
 
     @jax.custom_vjp  # type: ignore[misc]
@@ -82,7 +80,7 @@ def wrap_for_jax(
             # Variables updated nonlocally where `fn` is evaluated.
             is_tuple_outputs: bool = None  # type: ignore[assignment]
             nondiff_outputs: Tuple[Any, ...] = None  # type: ignore[assignment]
-            diff_outputs_treedef: jax.tree_util.PyTreeDef = None
+            diff_outputs_treedef: tree_util.PyTreeDef = None  # type: ignore[assignment]
 
             def _tuple_fn(*args: Any) -> onp.ndarray:
                 nonlocal is_tuple_outputs
@@ -98,7 +96,7 @@ def wrap_for_jax(
                 outputs, is_tuple_outputs = utils.ensure_tuple(outputs)
                 nondiff_outputs, diff_outputs = split_outputs_fn(outputs)
                 nondiff_outputs = utils.arraybox_to_numpy(nondiff_outputs)
-                diff_outputs_leaves, diff_outputs_treedef = jax.tree_util.tree_flatten(
+                diff_outputs_leaves, diff_outputs_treedef = tree_util.tree_flatten(
                     diff_outputs
                 )
                 return autograd.builtins.tuple(tuple(diff_outputs_leaves))
@@ -110,14 +108,14 @@ def wrap_for_jax(
             tuple_vjp_fn, diff_outputs_leaves = autograd.make_vjp(
                 _tuple_fn, argnum=diff_argnums
             )(*args)
-            diff_outputs = jax.tree_util.tree_unflatten(
+            diff_outputs = tree_util.tree_unflatten(
                 diff_outputs_treedef, diff_outputs_leaves
             )
             outputs = utils.to_jax(merge_outputs_fn(nondiff_outputs, diff_outputs))
             outputs = outputs if is_tuple_outputs else outputs[0]
 
             def _vjp_fn(*diff_outputs: Any) -> Any:
-                diff_outputs_leaves = jax.tree_util.tree_leaves(diff_outputs)
+                diff_outputs_leaves = tree_util.tree_leaves(diff_outputs)
                 grad = tuple_vjp_fn(utils.to_numpy(diff_outputs_leaves))
                 return utils.to_jax(grad)
 

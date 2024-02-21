@@ -2,7 +2,7 @@
 
 from typing import Any, Sequence, Tuple
 
-import autograd.numpy as npa
+import autograd.numpy as npa  # type: ignore[import-untyped]
 import jax
 import jax.numpy as jnp
 import numpy as onp

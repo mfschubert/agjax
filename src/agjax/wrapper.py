@@ -3,13 +3,12 @@
 import functools
 from typing import Any, Callable, Tuple, Union
 
-import autograd
+import autograd  # type: ignore[import-untyped]
 import jax
 import numpy as onp
+from jax import tree_util
 
 from agjax import utils
-
-PyTree = Any
 
 
 def wrap_for_jax(
@@ -70,7 +69,7 @@ def wrap_for_jax(
         # Variables updated nonlocally where `fn` is evaluated.
         is_tuple_outputs: bool = None  # type: ignore[assignment]
         nondiff_outputs: Tuple[Any, ...] = None  # type: ignore[assignment]
-        diff_outputs_treedef: jax.tree_util.PyTreeDef = None
+        diff_outputs_treedef: tree_util.PyTreeDef = None  # type: ignore[assignment]
 
         def _tuple_fn(*args: Any) -> onp.ndarray:
             nonlocal is_tuple_outputs
@@ -86,7 +85,7 @@ def wrap_for_jax(
             nondiff_outputs = tuple(
                 [utils.WrappedValue(o) for o in nondiff_outputs or []]
             )
-            diff_outputs_leaves, diff_outputs_treedef = jax.tree_util.tree_flatten(
+            diff_outputs_leaves, diff_outputs_treedef = tree_util.tree_flatten(
                 diff_outputs
             )
             return autograd.builtins.tuple(tuple(diff_outputs_leaves))
@@ -95,20 +94,20 @@ def wrap_for_jax(
         tuple_vjp_fn, diff_outputs_leaves = autograd.make_vjp(
             _tuple_fn, argnum=diff_argnums
         )(*args)
-        diff_outputs = jax.tree_util.tree_unflatten(
+        diff_outputs = tree_util.tree_unflatten(
             diff_outputs_treedef, diff_outputs_leaves
         )
         outputs = merge_outputs_fn(nondiff_outputs, utils.to_jax(diff_outputs))
         outputs = outputs if is_tuple_outputs else outputs[0]
 
         def _vjp_fn(*diff_outputs: Any) -> Any:
-            diff_outputs_leaves = jax.tree_util.tree_leaves(diff_outputs)
+            diff_outputs_leaves = tree_util.tree_leaves(diff_outputs)
             grad = tuple_vjp_fn(utils.to_numpy(diff_outputs_leaves))
             # Note that there is no value associated with nondifferentiable
             # arguments in the return of the vjp function.
             return utils.to_jax(grad)
 
-        return outputs, jax.tree_util.Partial(_vjp_fn)
+        return outputs, tree_util.Partial(_vjp_fn)
 
     def _bwd_fn(*bwd_args: Any) -> Any:
         # The `bwd_args` consist of the nondifferentiable arguments, the
