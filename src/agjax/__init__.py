@@ -3,6 +3,7 @@
 __version__ = "v0.2.0"
 __author__ = "Martin Schubert <mfschubert@gmail.com>"
 
-__all__ = ["wrap_for_jax"]
+__all__ = ["experimental", "wrap_for_jax"]
 
+from agjax import experimental
 from agjax.wrapper import wrap_for_jax
