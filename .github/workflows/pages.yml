@@ -11,24 +11,28 @@ jobs:
     runs-on: ubuntu-latest
     name: Sphinx docs to gh-pages
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: "pip"
           cache-dependency-path: pyproject.toml
+
       - name: Installing the library
         shell: bash -l {0}
-        run: |
-          make dev
+        run: make dev
+
       - name: make docs
-        run: |
-          make docs
+        run: make docs
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: "./docs/_build/html/"
+          
   deploy-docs:
     needs: build-docs
     permissions:
