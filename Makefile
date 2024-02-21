@@ -19,7 +19,8 @@ pylint:
 	pylint agjax
 
 ruff:
-	ruff --fix agjax/*.py
+	ruff --fix src/agjax/*.py
+	ruff --fix src/agjax/experimental/*.py
 
 git-rm-merged:
 	git branch -D `git branch --merged | grep -v \* | xargs`
