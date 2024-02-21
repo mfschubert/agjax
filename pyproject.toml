@@ -20,11 +20,11 @@ dependencies = [
     "jax",
     "jaxlib",
     "numpy",
-    "parameterized",
 ]
 
 [project.optional-dependencies]
 tests = [
+    "parameterized",
     "pytest",
     "pytest-cov",
     "pytest-xdist",
@@ -37,9 +37,11 @@ docs = [
     "ceviche_challenges",
 ]
 dev = [
+    "agjax[tests, examples]",
+    "bump-my-version",
+    "darglint",
+    "mypy",
     "pre-commit",
-    "bumpversion",
-    "agjax[tests]",
 ]
 
 [build-system]
