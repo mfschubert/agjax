@@ -53,7 +53,7 @@ jobs:
       - name: darglint docstring validation
         run: |
           darglint src --strictness=short --ignore-raise=ValueError
-        
+
   tests:
     runs-on: ubuntu-latest
     steps:
