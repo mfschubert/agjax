@@ -1,7 +1,7 @@
 [project]
 
 name = "agjax"
-version = "v0.3.0"
+version = "v0.3.1"
 description = "A jax wrapper for autograd-differentiable functions."
 keywords = ["autograd", "jax", "python", "wrapper", "gradient"]
 readme = "README.md"
@@ -37,7 +37,7 @@ docs = [
     "ceviche_challenges",
 ]
 dev = [
-    "agjax[tests, examples]",
+    "agjax[tests, docs]",
     "bump-my-version",
     "darglint",
     "mypy",
@@ -49,7 +49,7 @@ requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.package-data]
-"invrs_gym" = ["py.typed"]
+"agjax" = ["py.typed"]
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]  # Allow tests with same name in different dirs.
