@@ -19,7 +19,7 @@ dependencies = [
     "autograd",
     "jax",
     "jaxlib",
-    "numpy",
+    "numpy~=1.25",
 ]
 
 [project.optional-dependencies]
