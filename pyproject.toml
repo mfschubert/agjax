@@ -1,7 +1,7 @@
 [project]
 
 name = "agjax"
-version = "v0.3.1"
+version = "v0.3.2"
 description = "A jax wrapper for autograd-differentiable functions."
 keywords = ["autograd", "jax", "python", "wrapper", "gradient"]
 readme = "README.md"
@@ -19,7 +19,7 @@ dependencies = [
     "autograd",
     "jax",
     "jaxlib",
-    "numpy",
+    "numpy~=1.25",
 ]
 
 [project.optional-dependencies]
