@@ -31,7 +31,7 @@ tests = [
 ]
 docs = [
     "matplotlib",
-    "jupyter-book==1.0.2",
+    "jupyter-book==1.0.3",
     "sphinx-autodoc-typehints",
     "sphinx-click",
     "ceviche_challenges",
