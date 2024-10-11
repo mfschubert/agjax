@@ -111,17 +111,17 @@ def wrap_for_jax(
             diff_outputs = tree_util.tree_unflatten(
                 diff_outputs_treedef, diff_outputs_leaves
             )
-            outputs = utils.to_jax(merge_outputs_fn(nondiff_outputs, diff_outputs))
+            outputs = merge_outputs_fn(nondiff_outputs, diff_outputs)
             outputs = outputs if is_tuple_outputs else outputs[0]
 
             def _vjp_fn(*diff_outputs: Any) -> Any:
                 diff_outputs_leaves = tree_util.tree_leaves(diff_outputs)
                 grad = tuple_vjp_fn(utils.to_numpy(diff_outputs_leaves))
-                return utils.to_jax(grad)
+                return grad
 
             key = len(vjp_fns)
             vjp_fns.append(tree_util.Partial(_vjp_fn))
-            return outputs, jnp.asarray(key)
+            return outputs, key
 
         outputs, key = jax.pure_callback(
             make_vjp,
