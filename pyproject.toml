@@ -1,7 +1,7 @@
 [project]
 
 name = "agjax"
-version = "v0.3.2"
+version = "v0.3.3"
 description = "A jax wrapper for autograd-differentiable functions."
 keywords = ["autograd", "jax", "python", "wrapper", "gradient"]
 readme = "README.md"
