@@ -135,7 +135,7 @@ def wrap_for_jax(
             nonlocal stage
             stage = _BACKWARD_STAGE
             vjp_fn = vjp_fns[int(key)]
-            return utils.to_jax(vjp_fn(utils.to_numpy(*tangents)))
+            return vjp_fn(utils.to_numpy(*tangents))
 
         (args, key), *tangents = bwd_args
         _, diff_args = split_args_fn(args)
