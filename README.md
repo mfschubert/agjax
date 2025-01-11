@@ -1,5 +1,5 @@
 # Agjax -- jax wrapper for autograd-differentiable functions.
-`v0.3.3`
+`v0.3.4`
 
 Agjax allows existing code built with autograd to be used with the jax framework.
 
