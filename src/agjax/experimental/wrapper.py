@@ -66,6 +66,7 @@ def wrap_for_jax(
             lambda *args: utils.to_jax(fn(*utils.to_numpy(args))),
             result_shape_dtypes,
             *args,
+            vmap_methpd="sequential",
         )
         utils.validate_nondiff_outputnums_for_outputs(_nondiff_outputnums, outputs)
         return outputs
@@ -127,6 +128,7 @@ def wrap_for_jax(
             make_vjp,
             (result_shape_dtypes, jnp.asarray(0)),
             *args,
+            vmap_methpd="sequential",
         )
         return outputs, (args, key)
 
