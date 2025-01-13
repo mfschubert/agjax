@@ -56,7 +56,7 @@ jobs:
         run: |
           darglint src --strictness=short --ignore-raise=ValueError
 
-  tests:
+  tests-jax-latest:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -79,7 +79,7 @@ jobs:
         run: |
           pytest --cov=agjax tests
 
-  tests-minimum-jax:
+  tests-jax-0_4_35:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
