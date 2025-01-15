@@ -1,5 +1,7 @@
 # Agjax -- jax wrapper for autograd-differentiable functions.
-`v0.3.5`
+<a href="https://mfschubert.github.io/agjax/"><img src="https://img.shields.io/badge/Docs-blue.svg"/></a>
+![Continuous integration](https://github.com/mfschubert/agjax/actions/workflows/build-ci.yml/badge.svg)
+![PyPI version](https://img.shields.io/pypi/v/agjax)
 
 Agjax allows existing code built with autograd to be used with the jax framework.
 
