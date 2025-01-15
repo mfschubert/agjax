@@ -17,7 +17,7 @@ maintainers = [
 
 dependencies = [
     "autograd",
-    "jax >= 0.4.31",
+    "jax >= 0.4.27",
     "jaxlib",
     "numpy",
 ]
