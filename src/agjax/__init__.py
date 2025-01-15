@@ -1,6 +1,6 @@
 """agjax - a jax wrapper for autograd-differentiable functions."""
 
-__version__ = "v0.3.4"
+__version__ = "v0.3.5"
 __author__ = "Martin Schubert <mfschubert@gmail.com>"
 
 __all__ = ["experimental", "wrap_for_jax"]

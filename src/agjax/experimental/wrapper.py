@@ -1,6 +1,10 @@
-"""Defines a jax wrapper for autograd-differentiable functions."""
+"""Defines a jax wrapper for autograd-differentiable functions.
+
+Copyright (c) 2024 Martin F. Schubert
+"""
 
 import functools
+from packaging import version
 from typing import Any, Callable, List, Tuple, Union
 
 import autograd  # type: ignore[import-untyped]
@@ -10,6 +14,11 @@ import numpy as onp
 from jax import tree_util
 
 from agjax import utils
+
+if version.Version(jax.__version__) > version.Version("0.4.31"):
+    callback_sequential = functools.partial(jax.pure_callback, vmap_method="sequential")
+else:
+    callback_sequential = functools.partial(jax.pure_callback, vectorized=False)
 
 _FORWARD_STAGE = "fwd"
 _BACKWARD_STAGE = "bwd"
@@ -62,11 +71,10 @@ def wrap_for_jax(
     @jax.custom_vjp  # type: ignore[misc]
     def _fn(*args: Any) -> Any:
         utils.validate_nondiff_argnums_for_args(_nondiff_argnums, args)
-        outputs = jax.pure_callback(
+        outputs = callback_sequential(
             lambda *args: utils.to_jax(fn(*utils.to_numpy(args))),
             result_shape_dtypes,
             *args,
-            vmap_method="sequential",
         )
         utils.validate_nondiff_outputnums_for_outputs(_nondiff_outputnums, outputs)
         return outputs
@@ -124,11 +132,10 @@ def wrap_for_jax(
             vjp_fns.append(tree_util.Partial(_vjp_fn))
             return outputs, key
 
-        outputs, key = jax.pure_callback(
+        outputs, key = callback_sequential(
             make_vjp,
             (result_shape_dtypes, jnp.asarray(0)),
             *args,
-            vmap_method="sequential",
         )
         return outputs, (args, key)
 
@@ -142,12 +149,11 @@ def wrap_for_jax(
         (args, key), *tangents = bwd_args
         _, diff_args = split_args_fn(args)
         result_shape_dtypes = utils.to_jax(diff_args)
-        grads = jax.pure_callback(
+        grads = callback_sequential(
             _pure_fn,
             result_shape_dtypes,
             key,
             tangents,
-            vmap_method="sequential",
         )
         return merge_args_fn([None] * len(_nondiff_argnums), grads)
 
