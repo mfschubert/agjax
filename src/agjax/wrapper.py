@@ -1,4 +1,7 @@
-"""Defines a jax wrapper for autograd-differentiable functions."""
+"""Defines a jax wrapper for autograd-differentiable functions.
+
+Copyright (c) 2024 Martin F. Schubert
+"""
 
 import functools
 from typing import Any, Callable, Tuple, Union

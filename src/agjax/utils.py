@@ -1,4 +1,7 @@
-"""Defines a utility functions for jax-autograd wrappers."""
+"""Defines a utility functions for jax-autograd wrappers.
+
+Copyright (c) 2024 Martin F. Schubert
+"""
 
 from typing import Any, Sequence, Tuple
 
