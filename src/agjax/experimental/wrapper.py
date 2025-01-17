@@ -72,7 +72,7 @@ def wrap_for_jax(
     def _fn(*args: Any) -> Any:
         utils.validate_nondiff_argnums_for_args(_nondiff_argnums, args)
         outputs = callback_sequential(
-            lambda *args: utils.to_jax(fn(*utils.to_numpy(args))),
+            lambda *args: fn(*utils.to_numpy(args)),
             result_shape_dtypes,
             *args,
         )
