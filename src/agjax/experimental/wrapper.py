@@ -19,6 +19,9 @@ if version.Version(jax.__version__) > version.Version("0.4.31"):
 else:
     callback_sequential = functools.partial(jax.pure_callback, vectorized=False)
 
+_FORWARD_STAGE = "fwd"
+_BACKWARD_STAGE = "bwd"
+
 
 def wrap_for_jax(
     fn: Callable[[Any], Any],
@@ -61,9 +64,7 @@ def wrap_for_jax(
     # Vjp functions created in the "forward stage" of the calculation, and stored in
     # the `vjp_fns` list. When the calculation switches from the backward to the
     # forward stage, the list of vjp functions is cleared.
-    _forward_stage = "fwd"
-    _backward_stage = "bwd"
-    stage = _forward_stage
+    stage = _FORWARD_STAGE
     vjp_fns: List[Callable[[Any], Any]] = []
 
     @jax.custom_vjp  # type: ignore[misc]
@@ -81,9 +82,9 @@ def wrap_for_jax(
         def make_vjp(*args: Any) -> Any:
             args = utils.to_numpy(args)
             nonlocal stage
-            if stage == _backward_stage:
+            if stage == _BACKWARD_STAGE:
                 vjp_fns.clear()
-            stage = _forward_stage
+            stage = _FORWARD_STAGE
 
             # Variables updated nonlocally where `fn` is evaluated.
             is_tuple_outputs: bool = None  # type: ignore[assignment]
@@ -142,7 +143,7 @@ def wrap_for_jax(
         def _pure_fn(key: jnp.ndarray, tangents: Tuple[Any, ...]) -> Any:
             tangents = utils.to_numpy(tangents)
             nonlocal stage
-            stage = _backward_stage
+            stage = _BACKWARD_STAGE
             vjp_fn = vjp_fns[int(onp.asarray(key))]
             return vjp_fn(*tangents)
 

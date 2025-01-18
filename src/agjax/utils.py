@@ -130,20 +130,8 @@ def ensure_tuple(xs: Any) -> Tuple[Any, bool]:
     return (xs if is_tuple else (xs,)), is_tuple
 
 
-def tree_map(fn: Callable[[Any], Any], tree: PyTree) -> PyTree:
-    """Pure-python version of `jax.tree_util.tree_map`."""
-    leaves, treedef = tree_flatten(tree)
-    return tree_unflatten(treedef, [fn(leaf) for leaf in leaves])
-
-
-def tree_leaves(tree: PyTree) -> Any:
-    """Pure-python version of `jax.tree_util.tree_leaves`."""
-    leaves, _ = tree_flatten(tree)
-    return leaves
-
-
 # -----------------------------------------------------------------------------
-# Non-jax versions of `tree_flatten` and `tree_unflatten` (with limitations).
+# Non-jax versions of some `jax.tree_util` functions.
 # -----------------------------------------------------------------------------
 
 
@@ -178,6 +166,18 @@ def tree_unflatten(treedef, leaves):
             return type(tree)([_unflatten(v) for v in tree])
 
     return _unflatten(treedef)
+
+
+def tree_map(fn: Callable[[Any], Any], tree: PyTree) -> PyTree:
+    """Pure-python version of `jax.tree_util.tree_map`."""
+    leaves, treedef = tree_flatten(tree)
+    return tree_unflatten(treedef, [fn(leaf) for leaf in leaves])
+
+
+def tree_leaves(tree: PyTree) -> Any:
+    """Pure-python version of `jax.tree_util.tree_leaves`."""
+    leaves, _ = tree_flatten(tree)
+    return leaves
 
 
 def _is_node(maybe_node: Any) -> bool:
