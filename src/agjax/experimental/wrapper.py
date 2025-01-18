@@ -11,7 +11,6 @@ import autograd  # type: ignore[import-untyped]
 import jax
 import jax.numpy as jnp
 import numpy as onp
-from jax import tree_util
 
 from agjax import utils
 
@@ -19,9 +18,6 @@ if version.Version(jax.__version__) > version.Version("0.4.31"):
     callback_sequential = functools.partial(jax.pure_callback, vmap_method="sequential")
 else:
     callback_sequential = functools.partial(jax.pure_callback, vectorized=False)
-
-_FORWARD_STAGE = "fwd"
-_BACKWARD_STAGE = "bwd"
 
 
 def wrap_for_jax(
@@ -65,8 +61,10 @@ def wrap_for_jax(
     # Vjp functions created in the "forward stage" of the calculation, and stored in
     # the `vjp_fns` list. When the calculation switches from the backward to the
     # forward stage, the list of vjp functions is cleared.
-    vjp_fns: List[tree_util.Partial] = []
-    stage = _BACKWARD_STAGE
+    _forward_stage = "fwd"
+    _backward_stage = "bwd"
+    stage = _forward_stage
+    vjp_fns: List[Callable[[Any], Any]] = []
 
     @jax.custom_vjp  # type: ignore[misc]
     def _fn(*args: Any) -> Any:
@@ -81,15 +79,16 @@ def wrap_for_jax(
 
     def _fwd_fn(*args: Any) -> Any:
         def make_vjp(*args: Any) -> Any:
+            args = utils.to_numpy(args)
             nonlocal stage
-            if stage == _BACKWARD_STAGE:
+            if stage == _backward_stage:
                 vjp_fns.clear()
-            stage = _FORWARD_STAGE
+            stage = _forward_stage
 
             # Variables updated nonlocally where `fn` is evaluated.
             is_tuple_outputs: bool = None  # type: ignore[assignment]
             nondiff_outputs: Tuple[Any, ...] = None  # type: ignore[assignment]
-            diff_outputs_treedef: tree_util.PyTreeDef = None  # type: ignore[assignment]
+            diff_outputs_treedef: Any = None
 
             def _tuple_fn(*args: Any) -> onp.ndarray:
                 nonlocal is_tuple_outputs
@@ -105,7 +104,7 @@ def wrap_for_jax(
                 outputs, is_tuple_outputs = utils.ensure_tuple(outputs)
                 nondiff_outputs, diff_outputs = split_outputs_fn(outputs)
                 nondiff_outputs = utils.arraybox_to_numpy(nondiff_outputs)
-                diff_outputs_leaves, diff_outputs_treedef = tree_util.tree_flatten(
+                diff_outputs_leaves, diff_outputs_treedef = utils.tree_flatten(
                     diff_outputs
                 )
                 return autograd.builtins.tuple(tuple(diff_outputs_leaves))
@@ -117,19 +116,19 @@ def wrap_for_jax(
             tuple_vjp_fn, diff_outputs_leaves = autograd.make_vjp(
                 _tuple_fn, argnum=diff_argnums
             )(*args)
-            diff_outputs = tree_util.tree_unflatten(
+            diff_outputs = utils.tree_unflatten(
                 diff_outputs_treedef, diff_outputs_leaves
             )
             outputs = merge_outputs_fn(nondiff_outputs, diff_outputs)
             outputs = outputs if is_tuple_outputs else outputs[0]
 
             def _vjp_fn(*diff_outputs: Any) -> Any:
-                diff_outputs_leaves = tree_util.tree_leaves(diff_outputs)
+                diff_outputs_leaves = utils.tree_leaves(diff_outputs)
                 grad = tuple_vjp_fn(utils.to_numpy(diff_outputs_leaves))
                 return grad
 
             key = len(vjp_fns)
-            vjp_fns.append(tree_util.Partial(_vjp_fn))
+            vjp_fns.append(_vjp_fn)
             return outputs, key
 
         outputs, key = callback_sequential(
@@ -141,10 +140,11 @@ def wrap_for_jax(
 
     def _bwd_fn(*bwd_args: Any) -> Any:
         def _pure_fn(key: jnp.ndarray, tangents: Tuple[Any, ...]) -> Any:
+            tangents = utils.to_numpy(tangents)
             nonlocal stage
-            stage = _BACKWARD_STAGE
-            vjp_fn = vjp_fns[int(key)]
-            return vjp_fn(utils.to_numpy(*tangents))
+            stage = _backward_stage
+            vjp_fn = vjp_fns[int(onp.asarray(key))]
+            return vjp_fn(*tangents)
 
         (args, key), *tangents = bwd_args
         _, diff_args = split_args_fn(args)
