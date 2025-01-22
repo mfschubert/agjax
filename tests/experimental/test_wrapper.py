@@ -9,7 +9,7 @@ import jax
 import jax.numpy as jnp
 import jaxlib
 import numpy as onp
-import parameterized
+from parameterized import parameterized
 
 from agjax import utils
 from agjax.experimental import wrapper
@@ -62,7 +62,7 @@ TEST_FNS_AND_ARGS = (
 
 
 class WrapperTest(unittest.TestCase):
-    @parameterized.parameterized.expand(([2], [-3]))
+    @parameterized.expand(([2], [-3]))
     def test_out_of_bounds_nondiff_argnums(self, nondiff_argnums):
         def fn(x, y):
             return (npa.sum(x + y), y)
@@ -79,7 +79,7 @@ class WrapperTest(unittest.TestCase):
         ):
             jax.grad(wrapped)(1.0, 2.0)
 
-    @parameterized.parameterized.expand(([2], [-3]))
+    @parameterized.expand(([2], [-3]))
     def test_out_of_bounds_nondiff_outputnums(self, nondiff_outputnums):
         def fn(x, y):
             return (npa.sum(x + y), y)
@@ -96,7 +96,7 @@ class WrapperTest(unittest.TestCase):
         ):
             jax.grad(wrapped)(1.0, 2.0)
 
-    @parameterized.parameterized.expand(([(1, 1)], [(1, -1)]))
+    @parameterized.expand(([(1, 1)], [(1, -1)]))
     def test_duplicate_nondiff_outputnums(self, nondiff_outputnums):
         def fn(x, y):
             return (npa.sum(x + y), y)
@@ -129,7 +129,7 @@ class WrapperTest(unittest.TestCase):
         ):
             jax.value_and_grad(wrapped)(1.0, 2.0)
 
-    @parameterized.parameterized.expand(TEST_FNS_AND_ARGS)
+    @parameterized.expand(TEST_FNS_AND_ARGS)
     def test_wrapped_matches_autograd(self, autograd_fn, args):
         # Tests case where all arguments can be differentiated
         # with respect to, and all outputs are differentiable.

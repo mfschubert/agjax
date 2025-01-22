@@ -3,12 +3,12 @@
 Copyright (c) 2024 Martin F. Schubert
 """
 
-from typing import Any, Sequence, Tuple
+from typing import Any, Callable, Sequence, Tuple
 
 import autograd.numpy as npa  # type: ignore[import-untyped]
-import jax
 import jax.numpy as jnp
 import numpy as onp
+from jax import tree_util
 
 PyTree = Any
 
@@ -23,7 +23,7 @@ class WrappedValue:
         return f"_WrappedValue({self.value})"
 
 
-jax.tree_util.register_pytree_node(
+tree_util.register_pytree_node(
     WrappedValue,
     flatten_func=lambda w: ((), (w.value,)),
     unflatten_func=lambda v, _: WrappedValue(*v),
@@ -108,17 +108,17 @@ def merge(
 
 def to_jax(tree: PyTree) -> PyTree:
     """Converts leaves of a pytree to jax arrays."""
-    return jax.tree_util.tree_map(jnp.asarray, tree)
+    return tree_map(jnp.asarray, tree)
 
 
 def to_numpy(tree: PyTree) -> PyTree:
     """Converts leaves of a pytree to numpy arrays."""
-    return jax.tree_util.tree_map(onp.asarray, tree)
+    return tree_map(onp.asarray, tree)
 
 
 def arraybox_to_numpy(tree: PyTree) -> PyTree:
     """Converts `ArrayBox` leaves of a pytree to numpy arrays."""
-    return jax.tree_util.tree_map(
+    return tree_map(
         lambda x: x._value if isinstance(x, npa.numpy_boxes.ArrayBox) else x,
         tree,
     )
@@ -128,3 +128,58 @@ def ensure_tuple(xs: Any) -> Tuple[Any, bool]:
     """Returns `(xs, True)` if `xs` is a tuple, and `((xs,), False)` otherwise."""
     is_tuple = isinstance(xs, tuple)
     return (xs if is_tuple else (xs,)), is_tuple
+
+
+# -----------------------------------------------------------------------------
+# Non-jax versions of some `jax.tree_util` functions.
+# -----------------------------------------------------------------------------
+
+
+def tree_flatten(tree: PyTree) -> Tuple[Any, PyTree]:
+    """Pure-python version of `jax.tree_util.tree_flatten`."""
+    leaves = []
+
+    def _flatten(tree):
+        if not _is_node(tree):
+            assert tree is not None  # Cannot handle `None` leaves.
+            leaves.append(tree)
+            return None
+        elif isinstance(tree, dict):
+            return {k: _flatten(v) for k, v in tree.items()}
+        else:
+            return type(tree)([_flatten(v) for v in tree])
+
+    treedef = _flatten(tree)
+    return leaves, treedef
+
+
+def tree_unflatten(treedef, leaves):
+    """Pure-python version of `jax.tree_util.tree_unflatten`."""
+    leaves = iter(leaves)
+
+    def _unflatten(tree):
+        if not _is_node(tree):
+            return next(leaves)
+        elif isinstance(tree, dict):
+            return {k: _unflatten(v) for k, v in tree.items()}
+        else:
+            return type(tree)([_unflatten(v) for v in tree])
+
+    return _unflatten(treedef)
+
+
+def tree_map(fn: Callable[[Any], Any], tree: PyTree) -> PyTree:
+    """Pure-python version of `jax.tree_util.tree_map`."""
+    leaves, treedef = tree_flatten(tree)
+    return tree_unflatten(treedef, [fn(leaf) for leaf in leaves])
+
+
+def tree_leaves(tree: PyTree) -> Any:
+    """Pure-python version of `jax.tree_util.tree_leaves`."""
+    leaves, _ = tree_flatten(tree)
+    return leaves
+
+
+def _is_node(maybe_node: Any) -> bool:
+    """Return `True` if `maybe_node` is actually a node."""
+    return isinstance(maybe_node, (tuple, list, dict))
